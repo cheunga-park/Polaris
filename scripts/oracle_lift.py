@@ -14,20 +14,31 @@ from isaaclab_tasks.utils import parse_env_cfg
 from polaris.utils import load_eval_initial_conditions
 
 
-def ik_step(m, d, site_body, target, q_idx, iters=30, damping=1e-3, step=0.6):
-    """Damped least squares on the 7 arm joints to bring a body origin to `target` (position only)."""
+def ik_step(m, d, site_body, target, quat_target=None, iters=200, damping=1e-2, step=0.5):
+    """Damped least squares on the 7 arm joints: body origin -> `target`, body orientation ->
+    `quat_target` (wxyz) when given. Returns (q, position residual m, orientation residual rad)."""
     bid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, site_body)
+    jacp = np.zeros((3, m.nv)); jacr = np.zeros((3, m.nv))
     for _ in range(iters):
         mujoco.mj_forward(m, d)
-        err = target - d.xpos[bid]
-        if np.linalg.norm(err) < 2e-3:
+        ep = target - d.xpos[bid]
+        if quat_target is not None:
+            qerr = np.empty(3); qcur_inv = np.empty(4); mujoco.mju_negQuat(qcur_inv, d.xquat[bid])
+            qd = np.empty(4); mujoco.mju_mulQuat(qd, np.asarray(quat_target, float), qcur_inv)
+            mujoco.mju_quat2Vel(qerr, qd, 1.0)          # rotation vector taking current -> target (world)
+            err = np.r_[ep, qerr]
+        else:
+            err = ep
+        if np.linalg.norm(ep) < 1e-3 and (quat_target is None or np.linalg.norm(err[3:]) < 1e-2):
             break
-        jacp = np.zeros((3, m.nv)); mujoco.mj_jacBody(m, d, jacp, None, bid)
-        J = jacp[:, :7]
-        dq = J.T @ np.linalg.solve(J @ J.T + damping * np.eye(3), err)
+        mujoco.mj_jacBody(m, d, jacp, jacr, bid)
+        J = (np.vstack([jacp, jacr]) if quat_target is not None else jacp)[:, :7]
+        dq = J.T @ np.linalg.solve(J @ J.T + damping * np.eye(J.shape[0]), err)
         d.qpos[:7] += step * dq
-        d.qpos[:7] = np.clip(d.qpos[:7], m.jnt_range[:7, 0], m.jnt_range[:7, 1])
-    return d.qpos[:7].copy()
+        d.qpos[:7] = np.clip(d.qpos[:7], m.jnt_range[:7, 0] + 0.02, m.jnt_range[:7, 1] - 0.02)
+    mujoco.mj_forward(m, d)
+    rp = float(np.linalg.norm(target - d.xpos[bid])); rr = float(np.linalg.norm(err[3:])) if quat_target is not None else 0.0
+    return d.qpos[:7].copy(), rp, rr
 
 
 def main(a):
@@ -53,14 +64,15 @@ def main(a):
     # let the objects settle from their (hovering) initial conditions
     q0 = d.qpos[:7].copy(); go(q0, 0.0, 15, "settle")
     p_obj = d.xpos[obj_bid].copy()
-    # gripper 'base' origin sits ~0.16 m above the pads; the TCP is ~0.145 m along the gripper's +z (down here)
-    tcp_offset = 0.15
-    # plan joint targets kinematically on a scratch copy, then track them with the position controllers
+    # pads sit 0.112 m along the gripper's +z from 'gripper/base' (measured); keep the gripper
+    # pointing straight down (its rest orientation) so the descent is along its own axis
+    tcp_offset = 0.125
+    gb = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "gripper/base"); q_down = d.xquat[gb].copy()
     scratch = mujoco.MjData(m); scratch.qpos[:] = d.qpos; scratch.qvel[:] = 0
-    above = p_obj + [0, 0, 0.18 + tcp_offset]
-    q_above = ik_step(m, scratch, "gripper/base", above, range(7))
-    grasp = p_obj + [0, 0, 0.02 + tcp_offset]
-    q_grasp = ik_step(m, scratch, "gripper/base", grasp, range(7))
+    above = p_obj + [0, 0, 0.15 + tcp_offset]
+    q_above, rp, rr = ik_step(m, scratch, "gripper/base", above, q_down); print(f"IK above: pos res {rp*1000:.1f} mm, rot res {rr:.3f} rad")
+    grasp = p_obj + [0, 0, 0.015 + tcp_offset]
+    q_grasp, rp, rr = ik_step(m, scratch, "gripper/base", grasp, q_down); print(f"IK grasp: pos res {rp*1000:.1f} mm, rot res {rr:.3f} rad")
     go(q_above, 0.0, 45, "reach-above")
     go(q_grasp, 0.0, 45, "descend")
     go(q_grasp, 1.0, 20, "close")
