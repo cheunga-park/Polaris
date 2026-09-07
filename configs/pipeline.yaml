@@ -1,0 +1,21 @@
+# Stage settings for a phone scan. Every number here is read by exactly one stage.
+frames:
+  fps: 4            # decode rate; a 3-minute scan -> 720 candidates
+  long_edge: 1440   # cap; 2DGS memory scales with pixels
+  window: 2         # keep the sharpest of every N decoded frames
+  min_sharpness: 20 # Laplacian variance floor (blur guard)
+  max_frames: 500
+colmap:
+  camera_model: OPENCV
+  sequential_overlap: 15
+splat:                # 2DGS train.py arguments (upstream defaults unless stated)
+  iterations: 30000
+  lambda_normal: 0.05
+  lambda_dist: 0.0    # 2DGS: 0 for bounded/indoor; the paper's value is not published
+  depth_ratio: 0.0
+  resolution: 1       # -r 1 = full extracted resolution (we already capped long_edge)
+mesh:                 # 2DGS render.py TSDF fusion
+  voxel_size: 0.004
+  depth_trunc: 3.0
+  sdf_trunc: 0.02
+  num_cluster: 1      # keep the largest connected component (the room), drop floaters

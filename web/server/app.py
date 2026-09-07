@@ -13,11 +13,14 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+import re
+import shutil
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from polaris_v2s import hub, splat_io, usd_io
+from polaris_v2s import hub, jobs, splat_io, usd_io
 
 ROOT = Path(__file__).resolve().parents[2]
 APP_DIR = ROOT / "web" / "app"
@@ -116,6 +119,61 @@ def robot_link_splat(stem: str):
 def robot_links():
     d = hub.hub_root() / hub.ROBOT_DIR / "SEGMENTED"
     return sorted(p.stem for p in d.glob("*.ply")) if d.exists() else []
+
+
+# ---- scans: upload from a phone, run the pipeline, watch it ------------------------------
+
+_SCAN_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{1,40}$")
+
+
+@app.get("/api/scans")
+def scans():
+    return jobs.list_scans()
+
+
+@app.post("/api/scans")
+async def new_scan(name: str = Form(...), video: UploadFile = File(...), start: bool = Form(True)):
+    """Multipart: name + the background video. Writes data/scans/<name>/upload/video.mp4 and starts the job."""
+    name = name.strip().lower().replace(" ", "_")
+    if not _SCAN_ID.match(name):
+        raise HTTPException(400, "name: lowercase letters, digits, _ or -, 2-40 chars")
+    dst = jobs.SCANS / name / "upload" / "video.mp4"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with dst.open("wb") as f:
+        shutil.copyfileobj(video.file, f)
+    if dst.stat().st_size < 100_000:
+        dst.unlink()
+        raise HTTPException(400, "video too small")
+    if start:
+        jobs.start(name)
+    return {"scan": name, "bytes": dst.stat().st_size, "started": start}
+
+
+@app.post("/api/scans/{scan_id}/run")
+def run_scan(scan_id: str, force: str = ""):
+    if not (jobs.SCANS / scan_id / "upload" / "video.mp4").exists():
+        raise HTTPException(404, "no such scan")
+    ok = jobs.start(scan_id, force=[x for x in force.split(",") if x])
+    return {"scan": scan_id, "started": ok}
+
+
+@app.get("/api/scans/{scan_id}")
+def scan_status(scan_id: str):
+    d = jobs.SCANS / scan_id
+    if not d.exists():
+        raise HTTPException(404, "no such scan")
+    st = jobs.read_status(d)
+    from dataclasses import asdict
+    return {**asdict(st), "running": bool(jobs._threads.get(scan_id) and jobs._threads[scan_id].is_alive())}
+
+
+@app.get("/api/board.png")
+def board_png():
+    from polaris_v2s import charuco
+    p = CACHE / "board.png"
+    if not p.exists():
+        charuco.board_png(charuco.BoardSpec.load(), p)
+    return FileResponse(p, media_type="image/png", filename="polaris_charuco_A3.png")
 
 
 app.mount("/", StaticFiles(directory=APP_DIR, html=True), name="app")

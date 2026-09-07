@@ -25,8 +25,13 @@ dependencies = [
   "gymnasium>=1.0",
   "mujoco>=3.3",
   "coacd>=1.0.5",
+  "pycolmap>=3.11",
   "torch>=2.8",
   "torchvision>=0.23",
+  "ninja>=1.11",
+  # upstream CUDA kernels (unmodified, editable, JIT-compiled on first import)
+  "diff-surfel-rasterization",
+  "simple-knn",
 ]
 
 [project.optional-dependencies]
@@ -42,6 +47,8 @@ polaris-mujoco = "polaris_mujoco.run:main"
 package = true
 
 [tool.uv.sources]
+diff-surfel-rasterization = { path = "third_party/polaris/src/diff-surfel-rasterization", editable = true }
+simple-knn = { path = "third_party/polaris/src/simple-knn", editable = true }
 torch = { index = "torch-cu128" }
 torchvision = { index = "torch-cu128" }
 

@@ -1,6 +1,41 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><title>Polaris scan</title><link rel="stylesheet" href="/app.css"></head>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Polaris scan</title><link rel="stylesheet" href="/app.css"></head>
 <body>
 <header class="top"><div class="brand"><b>Polaris</b><span>new scan</span></div><nav><a href="/">Environments</a><a href="/robot.html">Robot</a><a class="on" href="/scan.html">New scan</a></nav></header>
-<main><h1>New scan</h1><p class="muted">폰 영상 업로드 → 재구성은 단계 2–4 에서 열린다.</p></main>
+<main>
+  <h1>New scan</h1>
+  <p class="muted">폰으로 찍은 배경 영상 1편을 올리면 프레임 추출 → COLMAP → ChArUco 정렬 → 2DGS → 메시 → 환경 폴더까지 자동으로 돈다. 촬영법은 <a href="https://github.com/cheunga-park/Polaris#핸드폰-촬영-가이드">README</a>, 보드는 <a href="/api/board.png">여기서 받아 A3 에 100 % 로 인쇄</a>.</p>
+  <form id="f" class="card" style="padding:14px; max-width:520px">
+    <label>이름 <input name="name" required pattern="[a-z0-9][a-z0-9_-]{1,40}" placeholder="desk_01" style="width:100%"></label>
+    <label style="margin-top:8px">배경 영상 (mp4/mov) <input type="file" name="video" accept="video/*" required></label>
+    <div style="margin-top:10px; display:flex; gap:8px; align-items:center"><button type="submit">업로드하고 시작</button><span id="msg" class="muted"></span></div>
+    <progress id="pb" value="0" max="100" style="width:100%; display:none; margin-top:8px"></progress>
+  </form>
+  <h2 style="font-size:16px; margin-top:24px">Scans</h2>
+  <div id="list"></div>
+</main>
+<script>
+const stages = ["frames","colmap","charuco","splat","mesh","pack"];
+async function refresh() {
+  const scans = await (await fetch('/api/scans')).json();
+  document.getElementById('list').innerHTML = scans.length ? scans.map(s => `
+    <div class="card" style="padding:10px 12px; margin-bottom:8px">
+      <div class="title">${s.scan}<span class="tag ${s.failed ? '' : (s.done.length === stages.length ? 'hub' : 'scan')}">${s.failed ? 'failed: ' + s.failed : (s.running ? 'running: ' + (s.stage || '…') : (s.done.length === stages.length ? 'done' : 'idle'))}</span></div>
+      <div class="meta">${stages.map(x => `<span style="margin-right:8px; ${s.done.includes(x) ? 'color:#137a2c' : (s.stage === x ? 'color:#0b5fff' : '')}">${s.done.includes(x) ? '✓' : (s.stage === x ? '●' : '○')} ${x}</span>`).join('')}</div>
+      ${s.progress ? `<div class="meta">${s.progress}</div>` : ''}
+      ${s.warnings && s.warnings.length ? `<div class="meta" style="color:#b35a00">${s.warnings.join('<br>')}</div>` : ''}
+      ${s.error ? `<pre style="font-size:11px; white-space:pre-wrap; color:#a00">${s.error.slice(-600)}</pre>` : ''}
+      <div style="margin-top:6px">${s.done.includes('pack') ? `<a href="/viewer.html?env=${s.scan}">open in viewer</a> · ` : ''}<a href="#" onclick="fetch('/api/scans/${s.scan}/run',{method:'POST'}).then(refresh);return false">re-run</a></div>
+    </div>`).join('') : '<p class="muted">no scans yet</p>';
+}
+document.getElementById('f').onsubmit = (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target), xhr = new XMLHttpRequest(), pb = document.getElementById('pb'), msg = document.getElementById('msg');
+  pb.style.display = 'block';
+  xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) pb.value = 100 * ev.loaded / ev.total; };
+  xhr.onload = () => { msg.textContent = xhr.status === 200 ? 'started' : ('error: ' + xhr.responseText); refresh(); };
+  xhr.open('POST', '/api/scans'); xhr.send(fd);
+};
+refresh(); setInterval(refresh, 3000);
+</script>
 </body></html>

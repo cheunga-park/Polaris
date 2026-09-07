@@ -69,6 +69,12 @@ def list_envs(root: Path | None = None) -> list[EnvEntry]:
                 e = _entry(p.name, p, None, "scan")
                 if e:
                     out.append(e)
+    scans = ROOT / "data" / "scans"
+    if scans.exists():
+        for p in sorted(scans.iterdir()):
+            e = _entry(p.name, p / "env", None, "scan")
+            if e:
+                out.append(e)
     return out
 
 

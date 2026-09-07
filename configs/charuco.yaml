@@ -1,0 +1,8 @@
+# The board the user prints (A3 landscape). Our choice; the paper gives no board spec.
+# 7x5 squares of 55 mm = 385 x 275 mm. Markers 41 mm. DICT_5X5_100.
+board:
+  squares_x: 7
+  squares_y: 5
+  square_m: 0.055
+  marker_m: 0.041
+  dictionary: DICT_5X5_100
