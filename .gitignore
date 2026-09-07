@@ -16,3 +16,5 @@ web/app/dist/
 micromamba/
 .env
 .venv-2dgs/
+# cloned by scripts/setup_trellis.sh (not a submodule)
+third_party/TRELLIS/

@@ -177,6 +177,21 @@ def robot_fk(q: str = "0,-0.628,0,-2.513,0,1.885,0", gripper: float = 0.0):
     return fk.link_poses(vals, gripper)
 
 
+@app.get("/api/runs")
+def runs():
+    from polaris_mujoco import results
+    return results.list_runs()
+
+
+@app.get("/runs/{path:path}")
+def run_file(path: str):
+    from polaris_mujoco import results
+    p = (results.RUNS / path).resolve()
+    if not str(p).startswith(str(results.RUNS.resolve())) or not p.exists():
+        raise HTTPException(404, "no such file")
+    return FileResponse(p)
+
+
 @app.get("/api/board.png")
 def board_png():
     from polaris_v2s import charuco

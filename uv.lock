@@ -1171,7 +1171,7 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
-sam2 = [
+perception = [
     { name = "sam2" },
 ]
 
@@ -1200,7 +1200,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.7" },
-    { name = "sam2", marker = "extra == 'sam2'", specifier = ">=1.1" },
+    { name = "sam2", marker = "extra == 'perception'", specifier = ">=1.1" },
     { name = "scipy", specifier = ">=1.13" },
     { name = "simple-knn", editable = "third_party/polaris/src/simple-knn" },
     { name = "torch", specifier = ">=2.8", index = "https://download.pytorch.org/whl/cu128" },
@@ -1210,7 +1210,7 @@ requires-dist = [
     { name = "usd-core", specifier = ">=25" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
-provides-extras = ["sam2", "dev"]
+provides-extras = ["perception", "dev"]
 
 [[package]]
 name = "portalocker"
