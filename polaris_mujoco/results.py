@@ -10,6 +10,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "runs"
 
+# Upstream (Isaac Lab) numbers for the same checkpoint, pi05_droid_jointpos_polaris:
+# "paper" = project-page progress (50 rollouts); "issue24" = a third party's reproduction with
+# the public code, 100 episodes (github.com/arhanjain/polaris/issues/24). The author states the
+# Princeton environments' reset states (MoveLatteCup, OrganizeTools, TapeIntoContainer) are broken
+# in the public release, so only the UW ones are a fair reference.
+REFERENCE = {
+    "DROID-BlockStackKitchen": {"paper_progress": 0.544, "issue24_progress": 0.501, "issue24_success": 0.02, "fair": True},
+    "DROID-FoodBussing": {"paper_progress": 0.580, "issue24_progress": 0.580, "issue24_success": 0.17, "fair": True},
+    "DROID-PanClean": {"paper_progress": 0.550, "issue24_progress": 0.750, "issue24_success": 0.37, "fair": True},
+    "DROID-MoveLatteCup": {"paper_progress": 0.333, "issue24_progress": 0.203, "issue24_success": 0.08, "fair": False},
+    "DROID-OrganizeTools": {"paper_progress": 0.600, "issue24_progress": 0.333, "issue24_success": 0.00, "fair": False},
+    "DROID-TapeIntoContainer": {"paper_progress": 0.800, "issue24_progress": 0.343, "issue24_success": 0.23, "fair": False},
+}
+
 
 def wilson(k: int, n: int, z: float = 1.645) -> tuple[float, float]:
     if n == 0:
@@ -42,5 +56,5 @@ def list_runs() -> list[dict]:
         rel = d.relative_to(RUNS)
         videos = sorted(p.name for p in d.glob("episode_*.mp4"))
         out.append({"run": str(rel), "path": str(d), **summarize(csvf), "videos": videos,
-                    "mtime": csvf.stat().st_mtime})
+                    "mtime": csvf.stat().st_mtime, "reference": REFERENCE.get(d.name)})
     return out

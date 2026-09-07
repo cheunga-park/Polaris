@@ -15,7 +15,7 @@ async function refresh() {
       <div class="title">${r.run}</div>
       <div class="row"><span class="k">episodes</span><span>${r.episodes}</span></div>
       <div class="row"><span class="k">success</span><span>${r.successes}/${r.episodes} = ${(100*r.success_rate).toFixed(0)} %  (Wilson 90 %: ${(100*r.wilson90[0]).toFixed(0)}–${(100*r.wilson90[1]).toFixed(0)} %)</span></div>
-      <div class="row"><span class="k">mean progress</span><span>${r.mean_progress.toFixed(3)}</span></div>
+      <div class="row"><span class="k">mean progress</span><span>${r.mean_progress.toFixed(3)}${r.reference ? ` &nbsp; <span class="muted">upstream Isaac: paper ${r.reference.paper_progress.toFixed(2)} · issue #24 ${r.reference.issue24_progress.toFixed(2)} (success ${(100*r.reference.issue24_success).toFixed(0)} %)${r.reference.fair ? '' : ' · reset states broken upstream'}</span>` : ''}</span></div>
       <div class="row"><span class="k">progress histogram</span><span>${r.progress_bins.map((b,i) => `${b.toFixed(2)}×${r.progress_hist[i]}`).join('  ')}</span></div>
       <div style="margin-top:8px; display:flex; flex-wrap:wrap; gap:6px">${r.videos.slice(0, 12).map(v => `<a href="/runs/${r.run}/${v}" target="_blank">${v.replace('.mp4','')}</a>`).join('')}${r.videos.length > 12 ? ` … ${r.videos.length} videos` : ''}</div>
     </div>`).join('') : '<p class="muted">no runs yet — <code>scripts/eval_batch.sh</code></p>';
