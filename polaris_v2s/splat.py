@@ -1,7 +1,8 @@
 """2D Gaussian Splatting, run exactly as the paper's authors point to: the hbb1 repository's
-own ``train.py`` and ``render.py`` (pinned submodule), with the two CUDA kernels we already
-built for the evaluation renderer. Nothing here is a reimplementation; this module only
-assembles the command lines and reads the outputs.
+own ``train.py`` and ``render.py`` (pinned submodule) with its own kernels, in its own venv
+(``scripts/setup_2dgs.sh`` — the evaluation renderer uses upstream-polaris's fork of the
+same package, so the two cannot share one environment). Nothing here is a reimplementation;
+this module only assembles the command lines and reads the outputs.
 """
 
 from __future__ import annotations
@@ -10,20 +11,26 @@ import json
 import os
 import re
 import subprocess
-import sys
 import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TWO_DGS = ROOT / "third_party" / "2d-gaussian-splatting"
+PY_2DGS = ROOT / ".venv-2dgs" / "bin" / "python"
 
 
 def _env() -> dict:
     e = dict(os.environ)
-    # 2DGS imports its kernels by package name; ours are the upstream-polaris copies, same API
     e["PYTHONPATH"] = str(TWO_DGS) + os.pathsep + e.get("PYTHONPATH", "")
+    e.setdefault("TORCH_EXTENSIONS_DIR", str(ROOT / "data" / "torch_extensions_2dgs"))
     return e
+
+
+def _python() -> str:
+    if not PY_2DGS.exists():
+        raise RuntimeError("2DGS venv missing: run scripts/setup_2dgs.sh")
+    return str(PY_2DGS)
 
 
 def _stream(cmd: list[str], log: Path, cwd: Path, progress=None) -> None:
@@ -56,7 +63,7 @@ def train(dataset: str | Path, model_dir: str | Path, *, iterations: int = 30_00
     dataset, model_dir = Path(dataset).resolve(), Path(model_dir).resolve()
     model_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
-    cmd = [sys.executable, "-m", "polaris_v2s.run_2dgs", "train.py", "-s", str(dataset), "-m", str(model_dir), "--iterations", str(iterations),
+    cmd = [_python(), "train.py", "-s", str(dataset), "-m", str(model_dir), "--iterations", str(iterations),
            "--lambda_normal", str(lambda_normal), "--lambda_dist", str(lambda_dist), "--depth_ratio", str(depth_ratio),
            "-r", str(resolution), "--test_iterations", "-1", "--save_iterations", str(iterations), "--quiet"]
     _stream(cmd, model_dir / "train.log", TWO_DGS, progress)
@@ -76,7 +83,7 @@ def extract_mesh(dataset: str | Path, model_dir: str | Path, *, voxel_size: floa
     largest ``num_cluster`` components -> ``model_dir/train/ours_N/fuse_post.ply`` (the file
     upstream's custom_environments.md names)."""
     dataset, model_dir = Path(dataset).resolve(), Path(model_dir).resolve()
-    cmd = [sys.executable, "-m", "polaris_v2s.run_2dgs", "render.py", "-s", str(dataset), "-m", str(model_dir), "--skip_train", "--skip_test",
+    cmd = [_python(), "render.py", "-s", str(dataset), "-m", str(model_dir), "--skip_train", "--skip_test",
            "--voxel_size", str(voxel_size), "--depth_trunc", str(depth_trunc), "--sdf_trunc", str(sdf_trunc),
            "--num_cluster", str(num_cluster), "--iteration", str(iteration), "--quiet"]
     _stream(cmd, model_dir / "mesh.log", TWO_DGS, progress)

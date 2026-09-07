@@ -22,6 +22,10 @@ def main(argv: list[str] | None = None) -> None:
         sys.path.insert(0, str(UPSTREAM_SRC))
     from polaris_mujoco import hooks
     hooks.install()
+    # upstream defines FakeClient but never registers it (abstract_client.py); register it here so
+    # `--policy.client Fake` works as the docstring implies. A hook, not an edit.
+    from polaris.policy.abstract_client import FakeClient, InferenceClient
+    InferenceClient.REGISTERED_CLIENTS.setdefault("Fake", FakeClient)
     sys.argv = [str(script)] + argv
     runpy.run_path(str(script), run_name="__main__")
 

@@ -31,6 +31,7 @@ FACADES = {
     "isaaclab.envs.ManagerBasedRLEnvCfg": ("polaris_mujoco.hooks.facade", "ManagerBasedRLEnvCfg"),
     "isaaclab.sensors.camera.camera.Camera": ("polaris_mujoco.hooks.facade", "Camera"),
     "isaaclab.sensors.Camera": ("polaris_mujoco.hooks.facade", "Camera"),
+    "isaaclab.managers.SceneEntityCfg": ("polaris_mujoco.hooks.facade", "SceneEntityCfg"),
     "isaaclab.utils.math.matrix_from_quat": ("polaris_mujoco.hooks.facade", "matrix_from_quat"),
     "isaaclab.utils.math.convert_camera_frame_orientation_convention": ("polaris_mujoco.hooks.facade", "convert_camera_frame_orientation_convention"),
     "isaacsim.core.prims.GeometryPrim": ("polaris_mujoco.hooks.facade", "GeometryPrim"),

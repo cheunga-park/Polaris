@@ -11,6 +11,7 @@ dependencies = [
   "pyyaml>=6",
   "trimesh>=4.6",
   "scipy>=1.13",
+  "fast-simplification>=0.1.9",
   "pillow>=10",
   "usd-core>=25",
   "plyfile>=1.1",
@@ -32,6 +33,7 @@ dependencies = [
   # upstream CUDA kernels (unmodified, editable, JIT-compiled on first import)
   "diff-surfel-rasterization",
   "simple-knn",
+  "openpi-client",
 ]
 
 [project.optional-dependencies]
@@ -45,10 +47,15 @@ polaris-mujoco = "polaris_mujoco.run:main"
 
 [tool.uv]
 package = true
+# openpi-client pins numpy<2 and depends on the abandoned `tree` package (needs pkg_resources to
+# build); upstream polaris overrides its own deps the same way. numpy 2 works for the client's
+# msgpack/image helpers.
+override-dependencies = ["numpy>=2", "tree; sys_platform == 'never'"]
 
 [tool.uv.sources]
 diff-surfel-rasterization = { path = "third_party/polaris/src/diff-surfel-rasterization", editable = true }
 simple-knn = { path = "third_party/polaris/src/simple-knn", editable = true }
+openpi-client = { path = "third_party/polaris/third_party/openpi/packages/openpi-client", editable = true }
 torch = { index = "torch-cu128" }
 torchvision = { index = "torch-cu128" }
 
