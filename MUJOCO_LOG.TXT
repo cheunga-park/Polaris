@@ -106,3 +106,6 @@ cone: parent has 0 (default), child has 1, keeping parent value
 WARNING Tue Sep  8 03:28:06 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
 cone: parent has 0 (default), child has 1, keeping parent value
 
+WARNING Tue Sep  8 03:31:58 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+

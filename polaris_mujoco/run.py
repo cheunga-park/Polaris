@@ -26,6 +26,21 @@ def main(argv: list[str] | None = None) -> None:
     # `--policy.client Fake` works as the docstring implies. A hook, not an edit.
     from polaris.policy.abstract_client import FakeClient, InferenceClient
     InferenceClient.REGISTERED_CLIENTS.setdefault("Fake", FakeClient)
+    # openpi's websocket client keeps the library default ping_timeout (20 s). A stall on the shared
+    # GPU longer than that kills the whole run ("keepalive ping timeout"), so widen it here. Hook on
+    # the websockets entry point, not on upstream/openpi code.
+    try:
+        import websockets.sync.client as _wsc
+        _orig_connect = _wsc.connect
+
+        def _connect(*a, **k):
+            k.setdefault("ping_timeout", 600)
+            k.setdefault("ping_interval", 30)
+            return _orig_connect(*a, **k)
+
+        _wsc.connect = _connect
+    except Exception:  # noqa: BLE001 - only a robustness tweak
+        pass
     sys.argv = [str(script)] + argv
     runpy.run_path(str(script), run_name="__main__")
 
