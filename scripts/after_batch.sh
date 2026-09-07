@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Queue for the GPU once the pi0.5 batches are done: free the policy server's VRAM, redo the
-# synthetic scan in the coarse (scaled) frame, then run the object pipeline (SAM 2 -> TRELLIS).
+# Queue for the GPU once the pi0.5 sweep is done: release diagnostics (policy server still up),
+# then free the server's VRAM, redo the synthetic scan in the coarse (scaled) frame, then run the
+# object pipeline (SAM 2 -> TRELLIS).
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"; cd "$ROOT"; source scripts/env.sh
-while pgrep -f eval_batch.sh >/dev/null || pgrep -f "batch2" >/dev/null; do sleep 60; done
-echo "=== $(date -Is) batches done; stopping policy server ==="
+while pgrep -f "eval_batch.sh" >/dev/null || pgrep -f "batch5_sweep" >/dev/null; do sleep 60; done
+echo "=== $(date -Is) sweep done; release diagnostics ==="
+.venv/bin/python scripts/diagnose_release.py --env DROID-PanClean --object sponge --container pan --episodes 4 2>&1 | grep -E "^\{|Error|Traceback"
+.venv/bin/python scripts/diagnose_release.py --env DROID-FoodBussing --object grapes --container bowl --episodes 4 2>&1 | grep -E "^\{|Error|Traceback"
+echo "=== $(date -Is) stopping policy server ==="
 ../urdf-to-simulater/scripts/openpi/stop.sh || true
 sleep 10; nvidia-smi --query-gpu=memory.used --format=csv,noheader
 echo "=== synth_food re-run in the coarse frame ==="
