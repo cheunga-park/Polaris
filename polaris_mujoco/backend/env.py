@@ -79,6 +79,8 @@ class RigidObject:
 
 
 class _RobotData:
+    joint_names: list[str] = []      # set per instance; declared here so the contract test sees it
+
     def __init__(self, env: "MujocoEnv"):
         self._env = env
         m = env.model
