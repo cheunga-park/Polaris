@@ -331,3 +331,18 @@ python -m polaris_mujoco.run third_party/polaris/scripts/eval.py --environment D
 ### 9.3 RAM
 
 WSL 상한 12 GB(`.wslconfig`, Isaac 윈도우 워커 여유 때문에 낮춘 값) + 스왑 32 GB, 호스트 31.7 GB. COLMAP(순차 매칭, ≤ 600 프레임)·2DGS·TRELLIS 모두 12 GB 안에서 돈다(추정, TRELLIS 피크 ~8 GB). **D3 를 MuJoCo 로 정했으니 윈도우 Isaac 여유가 더 필요 없다 → `memory=20GB` 로 올리는 것을 권장**(사용자 결정, `.wslconfig` 편집 + `wsl --shutdown`).
+
+---
+
+## 10. 진행 기록 (2026-09-08, 계획 → 실제)
+
+| 단계 | 상태 | 확인된 사실 |
+|---|---|---|
+| 0 툴체인 | 통과 | sudo 없음 → micromamba `polaris-tools`(nvcc 12.8, COLMAP 4.2 CUDA, ffmpeg 9, node 26). 업스트림 커널 2종은 editable + JIT. 2DGS 학습은 **별도 venv**(`.venv-2dgs`, 원본 hbb1 커널 — polaris 포크는 `near_n/far_n` 인자가 달라 한 환경에 공존 불가). gcc 13 대응은 `NVCC_APPEND_FLAGS="--pre-include cstdint --pre-include cfloat"` 로, 체크아웃 무수정 |
+| 1 갤러리 | 통과 | 6 환경 스크린샷, 텍스처 물체(usdz 내 텍스처 + MDL `inputs:texture` 경로 둘 다), 로봇 FK 탭. 렌더 검증은 Windows Edge 헤드리스를 CDP 로 붙여서(WSL Chromium 은 시스템 라이브러리 없음) |
+| 2 재구성 | 통과(합성) | 합성 스캔으로 전 단계 통과. COLMAP 4.x 는 옵션명이 바뀌었고(`FeatureExtraction.use_gpu`) 어휘 트리를 스스로 받는다. ChArUco: OpenCV 5 는 `estimatePoseCharucoBoard` 가 없어 `matchImagePoints`+`solvePnP`; OpenCV 보드 프레임은 y-아래·z-안쪽이라 z-up 으로 뒤집음(합성 왕복 0.5 mm). **실제 폰 영상은 아직 없음** |
+| 3 물체·GUI | 진행 | compose GUI 는 무수정 빌드해 `/compose-environments/` 에 마운트. SAM 2 마스크 동작(합성 그릇 5/6). TRELLIS 환경 설치 중 |
+| 4 업로드 | 완료 | 폰 → `/scan.html` 업로드 → 잡 → 뷰어. 물체 업로드 폼 포함 |
+| 5 MuJoCo | S5.1–5.4 통과 | 업스트림 `eval.py` 무수정 실행. 창구 계약 테스트. 발견한 규약: (a) 업스트림 기본 `robot_splat=True` → 로봇은 스플랫으로 그려지고 시뮬레이터 마스크에 없음 (b) 링크 프레임: panda 링크는 menagerie 와 동일, Robotiq 링크는 USD(rest pose) 와 menagerie 를 수치로 대조해 상수 오프셋 유도(`data/cache/robot_link_offsets.json`) (c) 정적 배경 충돌은 CoACD 대신 **작업공간 크롭 + 6 cm 격자 볼록 조각**(CoACD 는 상판이 2.5 cm 꺼짐) (d) 허브 IC 는 물체를 상판 5 cm 위에 두어 리셋 직후 낙하 — Isaac 도 같음 (e) 물체에 구름 마찰 추가(MuJoCo 기본 0 이면 원통이 계속 구름) — §8.5 표에 추가할 델타 |
+
+**남은 게이트**: S5.5 π0.5 50 롤아웃 × 2 환경(정책 서버 = tosim 의 openpi 환경 재사용, 체크포인트 12.4 GB), S5.6 결과 웹(페이지는 있음), 단계 3 TRELLIS 실행, 그리고 **실제 폰 영상**.
