@@ -17,6 +17,18 @@ scripts/run.sh                 # 콘솔 http://localhost:8080
 
 허브 예제: `uvx --from huggingface_hub hf download owhan/PolaRiS-Hub --repo-type=dataset --local-dir data/hub`
 
+MuJoCo 평가 (업스트림 `eval.py` 를 그대로, import 후킹으로):
+
+```bash
+scripts/setup_2dgs.sh                                  # 재구성용 2DGS venv (한 번)
+# 정책 서버: openpi 환경에서 (여기서는 ../urdf-to-simulater 의 것을 재사용)
+../urdf-to-simulater/scripts/openpi/serve.sh pi05_droid_jointpos_polaris gs://openpi-assets/checkpoints/polaris/pi05_droid_jointpos_polaris 8100
+python -m polaris_mujoco.run third_party/polaris/scripts/eval.py --environment DROID-FoodBussing --policy.port 8100 --rollouts 50 --run-folder runs/pi05/DROID-FoodBussing
+scripts/eval_batch.sh pi05 8100 50 DROID-FoodBussing DROID-TapeIntoContainer   # 여러 환경
+scripts/oracle_lift.py --env DROID-FoodBussing --object ice_cream_ --video      # 스크립트 오라클(제어·루브릭 점검)
+```
+결과는 콘솔의 Results 탭(`/results.html`) 에 Wilson 90 % 구간과 영상으로 뜬다.
+
 
 ## 핸드폰 촬영 가이드
 
