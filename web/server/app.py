@@ -149,6 +149,22 @@ async def new_scan(name: str = Form(...), video: UploadFile = File(...), start: 
     return {"scan": name, "bytes": dst.stat().st_size, "started": start}
 
 
+@app.post("/api/scans/{scan_id}/objects")
+async def add_object(scan_id: str, name: str = Form(...), video: UploadFile = File(...), size_m: float | None = Form(None)):
+    """An object scan for an existing scan: upload/objects/<name>.mp4 (+ .json with the longest side in metres)."""
+    if not (jobs.SCANS / scan_id / "upload" / "video.mp4").exists():
+        raise HTTPException(404, "no such scan")
+    name = name.strip().lower().replace(" ", "_")
+    if not _SCAN_ID.match(name):
+        raise HTTPException(400, "object name: lowercase letters, digits, _ or -")
+    d = jobs.SCANS / scan_id / "upload" / "objects"; d.mkdir(parents=True, exist_ok=True)
+    with (d / f"{name}.mp4").open("wb") as f:
+        shutil.copyfileobj(video.file, f)
+    if size_m:
+        (d / f"{name}.json").write_text(json.dumps({"size_m": size_m}))
+    return {"scan": scan_id, "object": name, "size_m": size_m}
+
+
 @app.post("/api/scans/{scan_id}/run")
 def run_scan(scan_id: str, force: str = ""):
     if not (jobs.SCANS / scan_id / "upload" / "video.mp4").exists():

@@ -72,8 +72,13 @@ def segment(views: list[Path], out_dir: Path, *, point: tuple[float, float] | No
         crop = rgba[y0:y1, x0:x1]
         o = out_dir / f"{p.stem}_rgba.png"
         cv2.imwrite(str(o), cv2.cvtColor(crop, cv2.COLOR_RGBA2BGRA))
-        outs.append(o)
-    return outs
+        outs.append((o, int(m.sum())))
+    # a prompt that lands on the object's hollow (a bowl's inside) yields a rim-only mask:
+    # drop views whose mask area is under half the median
+    if outs:
+        med = float(np.median([a for _, a in outs]))
+        outs = [(o, a) for o, a in outs if a >= 0.5 * med]
+    return [o for o, _ in outs]
 
 
 def trellis(rgba_views: list[Path], out_dir: Path, *, seed: int = 0) -> dict:

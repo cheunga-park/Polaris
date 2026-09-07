@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCANS = ROOT / "data" / "scans"
 PIPELINE_CFG = ROOT / "configs" / "pipeline.yaml"
 
-STAGES = ["frames", "colmap", "charuco", "splat", "mesh", "pack"]
+STAGES = ["frames", "colmap", "charuco", "splat", "mesh", "pack", "objects"]
 
 
 @dataclass
@@ -140,6 +140,29 @@ def run(scan_id: str, *, cfg_path: Path = PIPELINE_CFG, force: list[str] | None 
             _write_scene(env_dir, scan_id, f"{scan_id}_static")
             return info
         stage("pack", (env_dir / "scene.usda").exists(), _pack)
+        # 7. objects (optional): upload/objects/<name>.mp4 [+ <name>.json {"size_m": 0.12}] -> env/assets/<name>/
+        def _objects():
+            from polaris_v2s import objects as objects_mod
+            vids = sorted((scan_dir / "upload" / "objects").glob("*.mp4")) if (scan_dir / "upload" / "objects").exists() else []
+            done = {}
+            for v in vids:
+                meta = scan_dir / "upload" / "objects" / f"{v.stem}.json"
+                size = json.loads(meta.read_text()).get("size_m") if meta.exists() else None
+                target = env_dir / "assets" / v.stem
+                if (target / "mesh.usdz").exists() and "objects" not in force:
+                    done[v.stem] = "cached"; continue
+                progress(f"object {v.stem}: frames -> SAM 2 -> TRELLIS")
+                info = objects_mod.build_object(v, scan_dir / "objects" / v.stem, v.stem, size_m=size)
+                import shutil
+                if target.exists():
+                    shutil.rmtree(target)
+                shutil.copytree(info["asset"], target)
+                done[v.stem] = info
+            return done
+        objs_dir = scan_dir / "upload" / "objects"
+        have_objects = objs_dir.exists() and any(objs_dir.glob("*.mp4"))
+        if have_objects:
+            stage("objects", all((env_dir / "assets" / v.stem / "mesh.usdz").exists() for v in objs_dir.glob("*.mp4")), _objects)
         st.finished = time.time()
     except Exception as ex:  # noqa: BLE001 - the status file is the report
         st.failed = st.stage or "?"

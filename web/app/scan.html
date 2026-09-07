@@ -11,11 +11,20 @@
     <div style="margin-top:10px; display:flex; gap:8px; align-items:center"><button type="submit">업로드하고 시작</button><span id="msg" class="muted"></span></div>
     <progress id="pb" value="0" max="100" style="width:100%; display:none; margin-top:8px"></progress>
   </form>
+  <h2 style="font-size:16px; margin-top:24px">Object scan (optional)</h2>
+  <form id="fo" class="card" style="padding:14px; max-width:520px">
+    <label>스캔 이름 <input name="scan" required placeholder="desk_01" style="width:100%"></label>
+    <label style="margin-top:6px">물체 이름 <input name="name" required pattern="[a-z0-9][a-z0-9_-]{1,40}" placeholder="mug" style="width:100%"></label>
+    <label style="margin-top:6px">가장 긴 변 (m, 비우면 스케일 1) <input name="size_m" type="number" step="0.001" placeholder="0.12" style="width:100%"></label>
+    <label style="margin-top:6px">물체 영상 (보드 위에 하나만, 30–60 s) <input type="file" name="video" accept="video/*" required></label>
+    <div style="margin-top:10px; display:flex; gap:8px; align-items:center"><button type="submit">업로드</button><span id="msgo" class="muted"></span></div>
+  </form>
+  <p class="muted">물체를 올린 뒤 스캔 카드의 <b>re-run</b> 을 누르면 <code>objects</code> 단계(SAM 2 → TRELLIS)가 돈다.</p>
   <h2 style="font-size:16px; margin-top:24px">Scans</h2>
   <div id="list"></div>
 </main>
 <script>
-const stages = ["frames","colmap","charuco","splat","mesh","pack"];
+const stages = ["frames","colmap","charuco","splat","mesh","pack","objects"];
 async function refresh() {
   const scans = await (await fetch('/api/scans')).json();
   document.getElementById('list').innerHTML = scans.length ? scans.map(s => `
@@ -35,6 +44,11 @@ document.getElementById('f').onsubmit = (e) => {
   xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) pb.value = 100 * ev.loaded / ev.total; };
   xhr.onload = () => { msg.textContent = xhr.status === 200 ? 'started' : ('error: ' + xhr.responseText); refresh(); };
   xhr.open('POST', '/api/scans'); xhr.send(fd);
+};
+document.getElementById('fo').onsubmit = async (e) => {
+  e.preventDefault(); const fd = new FormData(e.target); const scan = fd.get('scan'); fd.delete('scan');
+  const r = await fetch(`/api/scans/${encodeURIComponent(scan)}/objects`, { method: 'POST', body: fd });
+  document.getElementById('msgo').textContent = r.ok ? 'uploaded — press re-run on the scan' : ('error: ' + await r.text());
 };
 refresh(); setInterval(refresh, 3000);
 </script>
