@@ -30,6 +30,12 @@ def build(bodies: list[BodySpec], *, timestep: float = 1 / 120, kp: float = 400.
     spec.visual.global_.offwidth = offwidth
     spec.visual.global_.offheight = offheight
     spec.visual.map.znear = 0.005
+    # upstream lights the scene with a dome light (shadowless, even); approximate with a strong
+    # ambient headlight and no shadows so the composited foreground is not lit by a single point
+    spec.visual.headlight.ambient[:] = 0.6
+    spec.visual.headlight.diffuse[:] = 0.5
+    spec.visual.headlight.specular[:] = 0.05
+    spec.visual.quality.shadowsize = 0
     # robot geoms: collide with the world (objects, scene) but not with each other
     for g in spec.geoms:
         if g.contype or g.conaffinity:
@@ -51,6 +57,13 @@ def build(bodies: list[BodySpec], *, timestep: float = 1 / 120, kp: float = 400.
             m = spec.add_mesh(); m.name = f"{bs.name}_vis"; m.file = str(bs.visual_obj); m.scale = scale
             g = body.add_geom(); g.name = f"{bs.name}_vis"; g.type = mujoco.mjtGeom.mjGEOM_MESH; g.meshname = m.name
             g.contype = 0; g.conaffinity = 0; g.group = OBJECT_GEOM_GROUP
+            # baked texture from the usdz/TRELLIS export (trimesh writes material_0.png + vt in the OBJ)
+            tex_png = bs.visual_obj.parent / "material_0.png"
+            if tex_png.exists():
+                t = spec.add_texture(); t.name = f"{bs.name}_tex"; t.file = str(tex_png); t.type = mujoco.mjtTexture.mjTEXTURE_2D
+                mat = spec.add_material(); mat.name = f"{bs.name}_mat"; mat.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = t.name
+                mat.specular = 0.05; mat.shininess = 0.05
+                g.material = mat.name
         for i, obj in enumerate(bs.collision_objs):
             m = spec.add_mesh(); m.name = f"{bs.name}_col{i}"; m.file = str(obj); m.scale = scale
             g = body.add_geom(); g.name = f"{bs.name}_col{i}"; g.type = mujoco.mjtGeom.mjGEOM_MESH; g.meshname = m.name

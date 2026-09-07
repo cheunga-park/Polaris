@@ -32,6 +32,7 @@
     <input type="range" id="ic" min="0" max="0" value="0">
     <h3>Camera</h3>
     <button id="camExt">external_cam (policy view)</button>
+    <button id="camFit">fit to scene</button>
     <h3>Prims</h3>
     <div id="prims"></div>
   </aside>
@@ -83,6 +84,18 @@ function goExternal() {
   controls.update();
 }
 goExternal(); document.getElementById('camExt').onclick = goExternal;
+// A scan without a ChArUco board is in COLMAP's arbitrary frame: frame whatever loaded.
+function fitToScene() {
+  const box = new THREE.Box3();
+  for (const n of Object.values(objects)) box.expandByObject(n);
+  for (const i of Object.values(splatIdx)) { const s = splatViewer.getSplatScene(i); if (s && s.splatMesh) box.expandByObject(s.splatMesh); }
+  if (box.isEmpty()) { const b2 = new THREE.Box3().setFromObject(world); if (b2.isEmpty()) return; box.copy(b2); }
+  const c = box.getCenter(new THREE.Vector3()), r = box.getSize(new THREE.Vector3()).length() / 2;
+  camera.fov = 60; camera.updateProjectionMatrix();
+  camera.position.copy(c.clone().add(new THREE.Vector3(1, 0.8, 1).normalize().multiplyScalar(r * 1.6)));
+  controls.target.copy(c); controls.update();
+}
+document.getElementById('camFit').onclick = fitToScene;
 
 // ---- prims: meshes under `world`, splats in the splat viewer
 const gltf = new GLTFLoader();
@@ -139,6 +152,7 @@ function applyIC(i) {
   }
 }
 slider.oninput = () => applyIC(+slider.value); if (ic.poses.length) applyIC(0);
+if (!ic.poses.length) fitToScene();
 status('');
 
 function loop() { requestAnimationFrame(loop); controls.update(); splatViewer.update(); splatViewer.render(); }

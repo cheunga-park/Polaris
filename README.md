@@ -45,7 +45,7 @@ scripts/run.sh                 # 콘솔 http://localhost:8080
 |---|---|---|
 | 0 툴체인 | nvcc·COLMAP·ffmpeg·node, 2DGS 커널 빌드, 허브 내려받기 | **통과** 2026-09-08 — sudo 없이 micromamba 환경으로; 커널 2종 JIT 빌드·import 확인 |
 | 1 예제 갤러리 | 허브 6 환경이 브라우저에서 스플랫+메시로 보인다 | **통과** 2026-09-08 — `scripts/shoot.py` 스크린샷 6장, 콘솔 오류 0. 로봇 FK 탭은 5.2 로 |
-| 2 배경 재구성 | 폰 영상 1편 → splat.ply + mesh.usdz | 진행 중 — 합성 스캔(허브 스플랫을 업스트림 렌더러로 궤도 렌더)으로 COLMAP 104/114 등록·재투영 0.50 px, ChArUco 합성 왕복 0.5 mm; 2DGS 학습 중 |
+| 2 배경 재구성 | 폰 영상 1편 → splat.ply + mesh.usdz | **통과(합성 영상)** 2026-09-08 — 합성 스캔(허브 스플랫을 업스트림 렌더러로 궤도 렌더, 24 s) → 프레임 114 → COLMAP 104 등록·재투영 0.55 px → 2DGS 30k iter 16 분·85,813 가우시안 → TSDF 메시 400k 면 → `env/assets/<id>_static/{splat.ply, mesh.usdz, mesh.glb, config.yaml}`. ChArUco 는 합성 왕복 0.5 mm 로 검증, 실제 보드 영상은 아직 없음(그래서 스케일·방향은 COLMAP 임의 좌표계) |
 | 3 물체·씬 구성 | 물체 2개 + GUI → 업스트림 검증 통과 폴더 | — |
 | 4 폰 업로드·문서 | 폰 브라우저에서 업로드 → 결과 | — |
-| 5 MuJoCo 평가 | 업스트림 eval.py 무수정 실행, 2 환경 × 50 롤아웃 | — |
+| 5 MuJoCo 평가 | 업스트림 eval.py 무수정 실행, 2 환경 × 50 롤아웃 | **S5.1–5.3 통과** 2026-09-08 — `python -m polaris_mujoco.run third_party/polaris/scripts/eval.py --environment DROID-FoodBussing --policy.client Fake` 가 450 스텝 1 에피소드를 끝내고 mp4·CSV 를 쓴다(업스트림 파일 수정 0, import 후킹만). 스플랫 배경 + MuJoCo 전경 합성, 텍스처 물체, 손목/외부 카메라. 남은 것: 오라클 제어 검증(S5.4), π0.5 서버 50 롤아웃(S5.5), 결과 웹(S5.6) |
