@@ -176,4 +176,9 @@ def board_png():
     return FileResponse(p, media_type="image/png", filename="polaris_charuco_A3.png")
 
 
+# upstream scene-composition GUI, built unmodified (vite base = /compose-environments/)
+COMPOSE_DIST = ROOT / "third_party" / "compose-environments" / "dist"
+if COMPOSE_DIST.exists():
+    app.mount("/compose-environments", StaticFiles(directory=COMPOSE_DIST, html=True), name="compose")
+
 app.mount("/", StaticFiles(directory=APP_DIR, html=True), name="app")

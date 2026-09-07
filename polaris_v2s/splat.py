@@ -56,7 +56,7 @@ def train(dataset: str | Path, model_dir: str | Path, *, iterations: int = 30_00
     dataset, model_dir = Path(dataset).resolve(), Path(model_dir).resolve()
     model_dir.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
-    cmd = [sys.executable, "train.py", "-s", str(dataset), "-m", str(model_dir), "--iterations", str(iterations),
+    cmd = [sys.executable, "-m", "polaris_v2s.run_2dgs", "train.py", "-s", str(dataset), "-m", str(model_dir), "--iterations", str(iterations),
            "--lambda_normal", str(lambda_normal), "--lambda_dist", str(lambda_dist), "--depth_ratio", str(depth_ratio),
            "-r", str(resolution), "--test_iterations", "-1", "--save_iterations", str(iterations), "--quiet"]
     _stream(cmd, model_dir / "train.log", TWO_DGS, progress)
@@ -76,7 +76,7 @@ def extract_mesh(dataset: str | Path, model_dir: str | Path, *, voxel_size: floa
     largest ``num_cluster`` components -> ``model_dir/train/ours_N/fuse_post.ply`` (the file
     upstream's custom_environments.md names)."""
     dataset, model_dir = Path(dataset).resolve(), Path(model_dir).resolve()
-    cmd = [sys.executable, "render.py", "-s", str(dataset), "-m", str(model_dir), "--skip_train", "--skip_test",
+    cmd = [sys.executable, "-m", "polaris_v2s.run_2dgs", "render.py", "-s", str(dataset), "-m", str(model_dir), "--skip_train", "--skip_test",
            "--voxel_size", str(voxel_size), "--depth_trunc", str(depth_trunc), "--sdf_trunc", str(sdf_trunc),
            "--num_cluster", str(num_cluster), "--iteration", str(iteration), "--quiet"]
     _stream(cmd, model_dir / "mesh.log", TWO_DGS, progress)
