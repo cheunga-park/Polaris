@@ -82,3 +82,92 @@ def default_qpos(spec_or_model, isaac_init: dict[str, float]) -> np.ndarray:
         if jid >= 0 and isaac in isaac_init:
             q[m.jnt_qposadr[jid]] = isaac_init[isaac]
     return q
+
+
+# ---------------------------------------------------------------------------- Isaac <-> Menagerie frames
+ISAAC_ROBOT_USD = ROOT / "data" / "hub" / "nvidia_droid" / "noninstanceable.usd"
+GRIPPER_ISAAC_LINKS = ["base_link", "left_outer_knuckle", "left_outer_finger", "left_inner_knuckle", "left_inner_finger",
+                       "right_outer_knuckle", "right_outer_finger", "right_inner_knuckle", "right_inner_finger"]
+GRIPPER_MEN_BODIES = ["gripper/base", "gripper/left_driver", "gripper/left_coupler", "gripper/left_spring_link", "gripper/left_follower",
+                      "gripper/right_driver", "gripper/right_coupler", "gripper/right_spring_link", "gripper/right_follower"]
+
+
+def _pose_mul(p1, q1, p2, q2):
+    """(p1,q1) o (p2,q2): first apply 2 then 1. quats wxyz."""
+    p = np.empty(3); q = np.empty(4)
+    mujoco.mju_rotVecQuat(p, np.asarray(p2, float), np.asarray(q1, float)); p += np.asarray(p1, float)
+    mujoco.mju_mulQuat(q, np.asarray(q1, float), np.asarray(q2, float))
+    return p, q
+
+
+def _pose_inv(p, q):
+    qi = np.empty(4); mujoco.mju_negQuat(qi, np.asarray(q, float))
+    pi = np.empty(3); mujoco.mju_rotVecQuat(pi, -np.asarray(p, float), qi)
+    return pi, qi
+
+
+def isaac_link_offsets(isaac_init: dict[str, float] | None = None, force: bool = False) -> dict[str, dict]:
+    """For every Isaac link the hub splats are expressed in, the constant transform from the
+    Menagerie body frame to that Isaac link frame: ``T_isaac = T_men(t) * offset``.
+
+    Derived once, numerically: the hub's ``nvidia_droid/noninstanceable.usd`` stores every link's
+    world transform at the DROID rest pose; Menagerie is put in the same joint configuration and
+    the two are compared. Panda links come out as identity (both descend from the same URDF);
+    the Robotiq links differ by a fixed rotation/offset (Isaac's base_link has +X along the
+    gripper, Menagerie's base has +Z). Cached in data/cache/robot_link_offsets.json.
+    """
+    import json
+    cache = ROOT / "data" / "cache" / "robot_link_offsets.json"
+    if cache.exists() and not force:
+        return json.loads(cache.read_text())
+    from pxr import Usd, UsdGeom
+    if isaac_init is None:
+        import os, sys
+        sys.path.insert(0, str(ROOT / "third_party" / "polaris" / "src"))
+        from polaris_mujoco import hooks; hooks.install()
+        from polaris.environments.robot_cfg import NVIDIA_DROID
+        isaac_init = NVIDIA_DROID.init_state.joint_pos
+    st = Usd.Stage.Open(str(ISAAC_ROBOT_USD)); xf = UsdGeom.XformCache()
+    usd = {}
+    for p in st.Traverse():
+        n = p.GetName()
+        if (n in LINK_MAP or n in GRIPPER_ISAAC_LINKS) and n not in usd and p.IsA(UsdGeom.Xformable):
+            M = np.array(xf.GetLocalToWorldTransform(p)).T
+            q = np.zeros(4); mujoco.mju_mat2Quat(q, np.ascontiguousarray(M[:3, :3]).reshape(9))
+            usd[n] = (M[:3, 3].copy(), q)
+    spec = build(); m = spec.compile(); d = mujoco.MjData(m)
+    d.qpos[:] = default_qpos(m, isaac_init); mujoco.mj_forward(m, d)
+    out = {}
+    pairs = {**{k: v for k, v in LINK_MAP.items()}, **dict(zip(GRIPPER_ISAAC_LINKS, GRIPPER_MEN_BODIES))}
+    for isaac, men in pairs.items():
+        if isaac not in usd:
+            continue
+        bid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, men)
+        pm, qm = d.xpos[bid], d.xquat[bid]
+        pi, qi = usd[isaac]
+        pinv, qinv = _pose_inv(pm, qm)
+        po, qo = _pose_mul(pinv, qinv, pi, qi)          # offset = inv(T_men) * T_isaac
+        out[isaac] = {"body": men, "pos": po.round(6).tolist(), "quat": qo.round(6).tolist(),
+                      "world_gap_mm": float(np.linalg.norm(pi - pm) * 1000)}
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps(out, indent=1))
+    return out
+
+
+def isaac_link_pose(data: mujoco.MjData, model: mujoco.MjModel, isaac_link: str, offsets: dict) -> tuple[np.ndarray, np.ndarray]:
+    """World pose of an Isaac link frame from the current MuJoCo state."""
+    o = offsets[isaac_link]
+    bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, o["body"])
+    return _pose_mul(data.xpos[bid], data.xquat[bid], o["pos"], o["quat"])
+
+
+def isaac_link_of_path(prim_path: str) -> str:
+    """'/World/envs/env_0/robot/panda_link3/...' -> 'panda_link3'; '.../Gripper/Robotiq_2F_85/left_inner_finger/...' -> 'left_inner_finger'."""
+    parts = [p for p in prim_path.split("/") if p]
+    i = parts.index("robot") if "robot" in parts else -1
+    rest = parts[i + 1:]
+    if rest and rest[0] in LINK_MAP:
+        return rest[0]
+    if rest and rest[0] == "Gripper" and len(rest) >= 3:
+        return rest[2]
+    raise KeyError(prim_path)

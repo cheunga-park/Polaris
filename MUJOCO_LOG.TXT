@@ -31,3 +31,27 @@ cone: parent has 0 (default), child has 1, keeping parent value
 WARNING Tue Sep  8 02:08:53 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
 cone: parent has 0 (default), child has 1, keeping parent value
 
+WARNING Tue Sep  8 02:10:23 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 02:10:50 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 02:11:14 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 02:12:03 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 02:12:58 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 02:14:20 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 02:14:58 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 02:15:57 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+

@@ -225,6 +225,7 @@ class MujocoBase:
 
         bodies = stage_mod.prepare(self.usd_file)
         self.spec, _ = build_mod.build(bodies, timestep=self.physics_dt)
+        self._link_offsets = robot_mod.isaac_link_offsets()
         self._cam_cfgs, self._cam_meta = {}, {}
         self._add_cameras(cfg)
         self.model = self.spec.compile()
@@ -277,11 +278,19 @@ class MujocoBase:
                 row = next((r for r in self._scene_info.cameras if r.name == name), None)
                 meta = (row.focal_length, row.horizontal_aperture, row.vertical_aperture) if row else (1.0476, 2.5452, 1.4721)
             self._cam_meta[name] = meta
-            parent = next(b for b in self.spec.bodies if b.name == "gripper/base") if name == "wrist_cam" else self.spec.worldbody
+            pos = np.asarray(c.offset.pos, dtype=float)
+            quat = np.asarray(c.offset.rot, dtype=float)       # Isaac "opengl" convention == MuJoCo camera frame
+            if name == "wrist_cam":
+                # upstream mounts it on the Isaac Robotiq base_link; compose with base_link's offset from Menagerie's base
+                o = self._link_offsets["base_link"]
+                parent = next(b for b in self.spec.bodies if b.name == o["body"])
+                pos, quat = robot_mod._pose_mul(o["pos"], o["quat"], pos, quat)
+            else:
+                parent = self.spec.worldbody
             cam = parent.add_camera()
             cam.name = name
-            cam.pos = np.asarray(c.offset.pos, dtype=float)
-            cam.quat = np.asarray(c.offset.rot, dtype=float)   # Isaac "opengl" convention == MuJoCo camera frame
+            cam.pos = pos
+            cam.quat = quat
             cam.fovy = math.degrees(2 * math.atan(meta[2] / (2 * meta[0])))
 
     # ---- poses
@@ -290,6 +299,10 @@ class MujocoBase:
         if bid < 0:
             raise KeyError(body)
         return self.data.xpos[bid].copy(), self.data.xquat[bid].copy()
+
+    def isaac_link_pose(self, isaac_link: str):
+        """World pose of an Isaac USD link frame (what the hub link splats are expressed in)."""
+        return robot_mod.isaac_link_pose(self.data, self.model, isaac_link, self._link_offsets)
 
     # ---- rendering
     def render_camera(self, mj_cam: str, height: int, width: int):

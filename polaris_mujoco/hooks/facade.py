@@ -148,11 +148,11 @@ class GeometryPrim:
     def __init__(self, prim_paths_expr: str = "", **kw):
         self.prim_paths_expr = prim_paths_expr
         from polaris_mujoco.backend import robot as robot_mod
-        self.body = robot_mod.isaac_path_to_body(prim_paths_expr)
+        self.isaac_link = robot_mod.isaac_link_of_path(prim_paths_expr)
 
     def get_world_poses(self, indices=None, usd: bool = False):
         env = CURRENT["env"]
-        p, q = env.body_pose(self.body)
+        p, q = env.isaac_link_pose(self.isaac_link)
         return torch.as_tensor(p, dtype=torch.float32)[None], torch.as_tensor(q, dtype=torch.float32)[None]
 
 
