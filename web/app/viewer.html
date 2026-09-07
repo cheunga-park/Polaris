@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polaris viewer</title>
+<link rel="stylesheet" href="/app.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "@mkkellogg/gaussian-splats-3d": "https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.6/build/gaussian-splats-3d.module.min.js"
+} }
+</script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><b>Polaris</b><span id="envname">viewer</span></div>
+  <nav><a href="/">Environments</a><a href="/robot.html">Robot</a><a href="/scan.html">New scan</a></nav>
+</header>
+<div class="viewer">
+  <div id="stage"><div class="status" id="status">loading…</div></div>
+  <aside class="panel">
+    <h2 id="instr"></h2>
+    <h3>Layers</h3>
+    <label><input type="checkbox" id="splatOn" checked> background splat</label>
+    <label><input type="checkbox" id="bgMeshOn"> background mesh (collision)</label>
+    <label><input type="checkbox" id="objOn" checked> objects (mesh)</label>
+    <label><input type="checkbox" id="robotOn"> robot splat (DROID Franka, rest pose)</label>
+    <h3>Initial condition</h3>
+    <label>#<span id="icIdx">0</span> / <span id="icN">0</span></label>
+    <input type="range" id="ic" min="0" max="0" value="0">
+    <h3>Camera</h3>
+    <button id="camExt">external_cam (policy view)</button>
+    <h3>Prims</h3>
+    <div id="prims"></div>
+  </aside>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as GS from '@mkkellogg/gaussian-splats-3d';
+
+const q = new URLSearchParams(location.search); const envId = q.get('env');
+const status = (t) => document.getElementById('status').textContent = t;
+document.getElementById('envname').textContent = envId;
+const scene = await (await fetch(`/api/envs/${encodeURIComponent(envId)}/scene`)).json();
+document.getElementById('instr').textContent = `“${scene.env.instruction}”`;
+
+// ---- three.js scene: USD is Z-up, three is Y-up. `world` carries Rx(-90°); anything with
+// USD coordinates goes under it unchanged. Splat scenes are owned by the splat viewer in
+// world (Y-up) coordinates, so their poses are converted with the same rotation.
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+stage.appendChild(renderer.domElement);
+const three = new THREE.Scene(); three.background = new THREE.Color(0x111111);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 100);
+const controls = new OrbitControls(camera, renderer.domElement);
+const world = new THREE.Group(); world.rotation.x = -Math.PI / 2; three.add(world);
+three.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+const sun = new THREE.DirectionalLight(0xffffff, 1.0); sun.position.set(1, 3, 2); three.add(sun);
+world.add(new THREE.AxesHelper(0.3));   // robot base = world origin (USD convention)
+const qR = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+const toThreePos = (p) => new THREE.Vector3(p[0], p[1], p[2]).applyQuaternion(qR);
+const toThreeQuat = (wxyz) => qR.clone().multiply(new THREE.Quaternion(wxyz[1], wxyz[2], wxyz[3], wxyz[0]));
+function resize() { const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+addEventListener('resize', resize); resize();
+
+// ---- camera from the scene's external_cam (USD camera looks down -Z, +Y up — same as three)
+const ext = scene.cameras.find(c => c.name === 'external_cam');
+function goExternal() {
+  if (!ext) { camera.position.set(1.5, 1.2, 1.5); controls.target.set(0.4, 0.2, 0); return; }
+  camera.fov = ext.fov_deg[1]; camera.updateProjectionMatrix();
+  camera.position.copy(toThreePos(ext.translate));
+  camera.quaternion.copy(toThreeQuat(ext.orient_wxyz));
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+  controls.target.copy(camera.position.clone().add(fwd.multiplyScalar(0.8)));
+  controls.update();
+}
+goExternal(); document.getElementById('camExt').onclick = goExternal;
+
+// ---- prims: meshes under `world`, splats in the splat viewer
+const gltf = new GLTFLoader();
+const objects = {}, bgMeshes = [], objMeshes = [];
+const splatViewer = new GS.Viewer({ threeScene: three, renderer, camera, selfDrivenMode: false, useBuiltInControls: false,
+  dynamicScene: true, sharedMemoryForWorkers: false, gpuAcceleratedSort: false, sphericalHarmonicsDegree: 0 });
+const splatIdx = {};  // prim name -> splat scene index
+const primsDiv = document.getElementById('prims');
+for (const p of scene.prims) {
+  primsDiv.insertAdjacentHTML('beforeend', `<div class="row"><span>${p.name}</span><span class="k">${p.kinematic ? 'static' : 'rigid'} · ${p.has_splat ? 'splat' : ''} ${p.has_mesh ? 'mesh' : ''}</span></div>`);
+  if (!p.asset_dir) continue;
+  if (p.has_mesh) {
+    status(`loading mesh ${p.name}…`);
+    const g = await gltf.loadAsync(`/assets/envs/${encodeURIComponent(envId)}/${p.asset_dir}/mesh.glb`);
+    const node = new THREE.Group(); node.add(g.scene);
+    node.position.set(...p.translate); node.quaternion.set(p.orient_wxyz[1], p.orient_wxyz[2], p.orient_wxyz[3], p.orient_wxyz[0]); node.scale.set(...p.scale);
+    world.add(node); objects[p.name] = node;
+    if (p.kinematic) { node.visible = false; bgMeshes.push(node); g.scene.traverse(o => { if (o.isMesh) o.material = new THREE.MeshStandardMaterial({ color: 0x8899aa, wireframe: false, flatShading: true }); }); }
+    else objMeshes.push(node);
+  }
+  if (p.has_splat) {
+    status(`loading splat ${p.name}…`);
+    const pos = toThreePos(p.translate), rot = toThreeQuat(p.orient_wxyz);
+    await splatViewer.addSplatScene(`/assets/envs/${encodeURIComponent(envId)}/${p.asset_dir}/splat_web.ply`, {
+      position: [pos.x, pos.y, pos.z], rotation: [rot.x, rot.y, rot.z, rot.w], scale: p.scale, splatAlphaRemovalThreshold: 5, showLoadingUI: false, format: GS.SceneFormat.Ply });
+    splatIdx[p.name] = splatViewer.getSceneCount() - 1;
+  }
+}
+let robotIdx = null;
+document.getElementById('robotOn').onchange = async (e) => {
+  if (robotIdx === null && e.target.checked) {
+    status('loading robot splat…');
+    const pos = toThreePos([0, 0, 0]), rot = toThreeQuat([1, 0, 0, 0]);
+    await splatViewer.addSplatScene('/assets/robot/splat_web.ply', { position: [pos.x, pos.y, pos.z], rotation: [rot.x, rot.y, rot.z, rot.w], showLoadingUI: false, format: GS.SceneFormat.Ply });
+    robotIdx = splatViewer.getSceneCount() - 1; status('');
+  } else if (robotIdx !== null) splatViewer.getSplatScene(robotIdx).visible = e.target.checked;
+};
+document.getElementById('splatOn').onchange = (e) => { for (const i of Object.values(splatIdx)) splatViewer.getSplatScene(i).visible = e.target.checked; };
+document.getElementById('bgMeshOn').onchange = (e) => bgMeshes.forEach(n => n.visible = e.target.checked);
+document.getElementById('objOn').onchange = (e) => objMeshes.forEach(n => n.visible = e.target.checked);
+
+// ---- initial conditions: hub files store [x, y, z, qw, qx, qy, qz] (Isaac Lab root pose order)
+const ic = await (await fetch(`/api/envs/${encodeURIComponent(envId)}/initial_conditions`)).json().catch(() => ({ poses: [] }));
+const slider = document.getElementById('ic'); slider.max = Math.max(0, ic.poses.length - 1);
+document.getElementById('icN').textContent = ic.poses.length;
+function applyIC(i) {
+  document.getElementById('icIdx').textContent = i;
+  const poses = ic.poses[i] || {};
+  for (const [name, v] of Object.entries(poses)) {
+    const node = objects[name]; if (!node) continue;
+    node.position.set(v[0], v[1], v[2]); node.quaternion.set(v[4], v[5], v[6], v[3]);
+    if (name in splatIdx) { const s = splatViewer.getSplatScene(splatIdx[name]); const p = toThreePos(v.slice(0, 3)), r = toThreeQuat(v.slice(3, 7)); s.position.copy(p); s.quaternion.copy(r); }
+  }
+}
+slider.oninput = () => applyIC(+slider.value); if (ic.poses.length) applyIC(0);
+status('');
+
+function loop() { requestAnimationFrame(loop); controls.update(); splatViewer.update(); splatViewer.render(); }
+loop();
+</script>
+</body>
+</html>

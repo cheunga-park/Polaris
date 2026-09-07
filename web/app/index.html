@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polaris console</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><b>Polaris</b><span>video → splat + mesh → scene → MuJoCo</span></div>
+  <nav>
+    <a class="on" href="/">Environments</a>
+    <a href="/robot.html">Robot</a>
+    <a href="/scan.html">New scan</a>
+  </nav>
+</header>
+<main>
+  <section>
+    <h1>Environments</h1>
+    <p class="muted">PolaRiS-Hub 의 6 환경(업스트림) 과 이 저장소에서 만든 스캔. 카드를 열면 스플랫 배경 + 메시 물체 + 초기조건이 브라우저에서 보인다.</p>
+    <div id="grid" class="grid"><p class="muted">loading…</p></div>
+  </section>
+</main>
+<script type="module">
+const grid = document.getElementById('grid');
+const envs = await (await fetch('/api/envs')).json();
+if (!envs.length) grid.innerHTML = '<p class="muted">허브가 없다. <code>uvx --from huggingface_hub hf download owhan/PolaRiS-Hub --repo-type=dataset --local-dir data/hub</code></p>';
+grid.innerHTML = envs.map(e => `
+  <a class="card" href="/viewer.html?env=${encodeURIComponent(e.id)}">
+    <div class="thumb">${e.thumbnail ? `<img src="/thumbs/${e.thumbnail}" alt="">` : '<div class="nothumb">scan</div>'}</div>
+    <div class="body">
+      <div class="title">${e.id}<span class="tag ${e.source}">${e.source}</span></div>
+      <div class="instr">“${e.instruction}”</div>
+      <div class="meta">${e.assets.length} assets · ${e.n_poses} initial conditions</div>
+    </div>
+  </a>`).join('');
+</script>
+</body>
+</html>
