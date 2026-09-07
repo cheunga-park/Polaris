@@ -76,3 +76,33 @@ cone: parent has 0 (default), child has 1, keeping parent value
 WARNING Tue Sep  8 02:34:42 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
 cone: parent has 0 (default), child has 1, keeping parent value
 
+WARNING Tue Sep  8 03:10:12 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 03:12:45 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 03:17:25 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 03:21:07 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 03:21:49 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 03:21:52 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 03:22:30 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 03:24:40 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 03:25:45 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+
+WARNING Tue Sep  8 03:28:06 2026: Attach conflict when attaching 'robotiq_2f85' to 'panda nohand', policy is 'warning'
+cone: parent has 0 (default), child has 1, keeping parent value
+

@@ -132,6 +132,17 @@ class Camera(Stub):
     """isinstance target for upstream's ``isinstance(sensor, Camera)`` checks."""
 
 
+class InteractiveSceneCfg:
+    """Base of upstream ``SceneCfg``. A plain container (not an auto-attribute stub) because
+    upstream's ``dynamic_setup`` decides with ``hasattr(self, "external_cam")`` whether to add
+    its default external camera -- on an auto-attribute stub hasattr is always True and the
+    Princeton environments (no camera prim in scene.usda) end up with no camera at all."""
+
+    def __init__(self, num_envs: int = 1, env_spacing: float = 1.0, **kw):
+        self.num_envs, self.env_spacing = num_envs, env_spacing
+        self.__dict__.update(kw)
+
+
 class SceneEntityCfg:
     """isaaclab.managers.SceneEntityCfg(name, ...): upstream obs terms read ``.name`` (positional)."""
 
