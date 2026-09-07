@@ -251,7 +251,12 @@ python -m polaris_mujoco.run third_party/polaris/scripts/eval.py --environment D
 | 전경 셰이딩 | RTX 돔 라이트 1000 | OpenGL Phong, 그림자 없음 | 정책 입력 픽셀 차이. 논문 ablation 상 렌더 차이는 Δr≈0.15 |
 | 배경·합성 | 스플랫 + 시맨틱 마스크 | **동일 코드** | 없음 |
 | 루브릭·IC·행동 규약·15 Hz·450 스텝 | — | **동일 코드/값** | 없음 |
-| 물체 충돌 | PhysX convexDecomposition | CoACD | 유사 |
+| 물체 충돌 | PhysX convexDecomposition | CoACD(threshold 0.05, ≤24 hull) | 유사 |
+| 정적 배경 충돌 | PhysX 삼각형 메시(`meshSimplification`) | 작업공간 크롭 후 6 cm 격자 볼록 조각(약 2,000개) — CoACD 는 상판이 2.5 cm 꺼졌음 | 평면은 정확, 곡면은 셀 안에서 근사 |
+| 구름 마찰 | PhysX 기본 0 (접촉 면 다각형이 감쇠) | `condim=6`, torsional 0.005 / rolling 0.001 | 원통(건전지)이 낙하 뒤 굴러가지 않게 함 |
+| 로봇 외형 | 스플랫(`robot_splat=True` 기본) | **동일** — 링크 스플랫을 USD 유도 오프셋으로 앵커 | 없음 |
+| 전경 조명 | RTX 돔 라이트 | 헤드라이트 ambient 0.6 / diffuse 0.5, 그림자 없음 | 텍스처 물체의 음영 차이 |
+| 마스크 | 시맨틱 세그먼테이션(`>=2`) | geom→body 분류(로봇=스플랫 1, 스플랫 없는 물체=2) | 규약 동일 |
 
 ### 8.6 단계와 게이트 (2.5–3.5 주, 단계 1–4 이후 또는 병렬)
 
