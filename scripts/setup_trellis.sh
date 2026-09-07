@@ -8,10 +8,15 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/env.sh"
 MM="$HOME/.local/bin/micromamba"; export MAMBA_ROOT_PREFIX="$HOME/micromamba"
 ENV="$MAMBA_ROOT_PREFIX/envs/trellis"; PY="$ENV/bin/python"
-[ -x "$PY" ] || "$MM" create -y -q -n trellis -c conda-forge python=3.10 "gxx<13" git
+[ -x "$PY" ] || "$MM" create -y -q -n trellis -c conda-forge python=3.10 git
+# compilers come from polaris-tools (gcc 13 + nvcc 12.8, the pair the eval kernels were built with);
+# a gcc 12 inside this env made nvcc choke on the sysroot stdlib.h (_Float32).
+"$MM" remove -y -q -n trellis gxx gcc gxx_impl_linux-64 gcc_impl_linux-64 >/dev/null 2>&1 || true
 T="$ROOT/third_party/TRELLIS"
 [ -d "$T" ] || git clone -q --recursive https://github.com/microsoft/TRELLIS.git "$T"
-export TORCH_CUDA_ARCH_LIST="8.9" CUDA_HOME="$POLARIS_TOOLS" PATH="$ENV/bin:$PATH"
+export TORCH_CUDA_ARCH_LIST="8.9" CUDA_HOME="$POLARIS_TOOLS" PATH="$POLARIS_TOOLS/bin:$ENV/bin:$PATH"
+# host compilers see cuda_runtime.h through $CUDA_HOME/include (micromamba keeps it under targets/)
+for f in "$POLARIS_TOOLS"/targets/x86_64-linux/include/*; do [ -e "$POLARIS_TOOLS/include/$(basename "$f")" ] || ln -s "$f" "$POLARIS_TOOLS/include/$(basename "$f")"; done
 "$PY" -m pip install -q --upgrade pip
 "$PY" -m pip install -q torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
 "$PY" -m pip install -q pillow imageio imageio-ffmpeg tqdm easydict opencv-python-headless scipy ninja rembg onnxruntime trimesh open3d xatlas pyvista pymeshfix igraph transformers tensorboard pandas lpips "numpy<2" huggingface_hub
