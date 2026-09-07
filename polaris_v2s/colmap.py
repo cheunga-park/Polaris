@@ -12,6 +12,8 @@ import os
 import shutil
 import subprocess
 import time
+
+import numpy as np
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -114,3 +116,37 @@ def undistort(workspace: str | Path, model: Path, *, colmap: str = "colmap") -> 
     for f in (out / "sparse").glob("*.bin"):
         shutil.move(str(f), out / "sparse" / "0" / f.name)
     return out
+
+
+def coarse_align(workspace: str | Path) -> tuple[Path, dict]:
+    """No ChArUco board: put the model in a sane frame anyway (scale stays unknown = 1).
+
+    Up = the mean camera up-vector (a hand-held phone is held roughly upright), origin = the
+    centroid of the camera centres projected down to the lowest 5 % of the sparse points
+    (roughly the table/floor level the scan looked at). Writes ``sparse/coarse``.
+    """
+    import pycolmap
+    ws = Path(workspace)
+    rec = pycolmap.Reconstruction(str(ws / "sparse" / "0"))
+    ups, centres = [], []
+    for im in rec.images.values():
+        R = im.cam_from_world().rotation.matrix()          # world -> camera
+        ups.append(-R[1, :])                                 # camera -y axis (up) expressed in world
+        centres.append(im.projection_center())
+    up = np.mean(ups, axis=0); up /= np.linalg.norm(up)
+    z = np.array([0.0, 0.0, 1.0])
+    v = np.cross(up, z); s = np.linalg.norm(v); c = float(np.dot(up, z))
+    if s < 1e-8:
+        R = np.eye(3) if c > 0 else np.diag([1.0, -1.0, -1.0])
+    else:
+        vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+        R = np.eye(3) + vx + vx @ vx * ((1 - c) / s ** 2)
+    pts = np.array([p.xyz for p in rec.points3D.values()]) @ R.T
+    cen = (np.mean(centres, axis=0)) @ R.T
+    floor_z = float(np.percentile(pts[:, 2], 5)) if len(pts) else cen[2]
+    t = -np.array([cen[0], cen[1], floor_z])
+    sim = pycolmap.Sim3d(1.0, pycolmap.Rotation3d(R), t)
+    rec.transform(sim)
+    out = ws / "sparse" / "coarse"; shutil.rmtree(out, ignore_errors=True); out.mkdir(parents=True)
+    rec.write(str(out))
+    return out, {"up_before": [float(x) for x in up], "camera_centroid_after": [float(x) for x in (cen + t)], "floor_z_before": floor_z}

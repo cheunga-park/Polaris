@@ -121,7 +121,9 @@ def run(scan_id: str, *, cfg_path: Path = PIPELINE_CFG, force: list[str] | None 
                 st.warnings.append(msg)
                 if require_board:
                     raise RuntimeError(msg)
-            model = Path(rep.get("aligned_model", recon / "sparse" / "0"))
+                coarse, info = colmap.coarse_align(recon)      # gravity + origin only; scale = 1
+                rep["coarse_model"] = str(coarse); rep["coarse"] = info
+            model = Path(rep.get("aligned_model", rep.get("coarse_model", recon / "sparse" / "0")))
             colmap.undistort(recon, model)
             return rep
         stage("charuco", (recon / "undistorted" / "sparse" / "0").exists(), _charuco)
