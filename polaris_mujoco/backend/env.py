@@ -332,10 +332,15 @@ class MujocoBase:
         if self._geom_class is None:
             cls = np.zeros(m.ngeom, dtype=np.int32)
             env_dir = Path(self.usd_file).parent
+            # upstream dynamic_setup(robot_splat=True) is the default: the robot is drawn by the splat
+            # renderer (its link splats follow the joints) and is NOT in the simulator mask; only with
+            # robot_splat=False does it tag the robot "raytraced" (semantic id >= 2).
+            robot_spawn = getattr(getattr(self.cfg.scene, "robot", None), "spawn", None)
+            robot_raytraced = "semantic_tags" in vars(robot_spawn) if robot_spawn is not None else False
             for g in range(m.ngeom):
                 name = m.body(m.geom_bodyid[g]).name
                 if name.startswith(("link", "gripper", "attachment")) or name == "world":
-                    cls[g] = 3
+                    cls[g] = 3 if robot_raytraced else 1
                 else:
                     adir = self._asset_dirs.get(name)
                     cls[g] = 1 if adir and (env_dir / "assets" / adir / "splat.ply").exists() else 2

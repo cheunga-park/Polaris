@@ -167,6 +167,16 @@ def scan_status(scan_id: str):
     return {**asdict(st), "running": bool(jobs._threads.get(scan_id) and jobs._threads[scan_id].is_alive())}
 
 
+@app.get("/api/robot/fk")
+def robot_fk(q: str = "0,-0.628,0,-2.513,0,1.885,0", gripper: float = 0.0):
+    """Isaac-link world poses for 7 arm joints (comma separated radians) and a 0..1 gripper command."""
+    from polaris_mujoco import fk
+    vals = [float(x) for x in q.split(",")]
+    if len(vals) != 7:
+        raise HTTPException(400, "q needs 7 values")
+    return fk.link_poses(vals, gripper)
+
+
 @app.get("/api/board.png")
 def board_png():
     from polaris_v2s import charuco

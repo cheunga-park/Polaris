@@ -1,6 +1,68 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><title>Polaris robot</title><link rel="stylesheet" href="/app.css"></head>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polaris robot</title>
+<link rel="stylesheet" href="/app.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "@mkkellogg/gaussian-splats-3d": "https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.6/build/gaussian-splats-3d.module.min.js"
+} }
+</script>
+</head>
 <body>
 <header class="top"><div class="brand"><b>Polaris</b><span>robot</span></div><nav><a href="/">Environments</a><a class="on" href="/robot.html">Robot</a><a href="/scan.html">New scan</a><a href="/compose-environments/" target="_blank">Compose</a></nav></header>
-<main><h1>DROID Franka splat</h1><p class="muted">링크별 스플랫(허브 <code>nvidia_droid/SEGMENTED</code>, 18개)을 관절값으로 움직이는 화면은 단계 5.2(menagerie 모델 + FK API) 에서 채운다. 지금은 뷰어의 "robot splat" 체크박스로 정지 자세를 본다.</p></main>
-</body></html>
+<div class="viewer">
+  <div id="stage"><div class="status" id="status">loading 19 link splats…</div></div>
+  <aside class="panel">
+    <h2>DROID Franka + Robotiq, as link splats</h2>
+    <p class="muted" style="margin:4px 0 10px">허브 <code>nvidia_droid/SEGMENTED</code> 의 링크별 스플랫 19개를 MuJoCo FK(menagerie 모델 + USD 에서 유도한 링크 프레임 오프셋)로 움직인다. 논문의 "링크 앵커 스플랫" 그대로.</p>
+    <div id="sliders"></div>
+    <h3>Gripper</h3>
+    <input type="range" id="grip" min="0" max="1" step="0.01" value="0"><span id="gripv" class="muted">0.00</span>
+    <h3>Presets</h3>
+    <button id="rest">DROID rest pose</button> <button id="zero">all zero</button>
+  </aside>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as GS from '@mkkellogg/gaussian-splats-3d';
+const status = (t) => document.getElementById('status').textContent = t;
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); stage.appendChild(renderer.domElement);
+const three = new THREE.Scene(); three.background = new THREE.Color(0x151515);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 50); camera.position.set(1.4, 1.0, 1.4);
+const controls = new OrbitControls(camera, renderer.domElement); controls.target.set(0.2, 0.4, 0);
+const world = new THREE.Group(); world.rotation.x = -Math.PI / 2; three.add(world); world.add(new THREE.AxesHelper(0.3)); world.add(new THREE.GridHelper(2, 20).rotateX(Math.PI / 2));
+const qR = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+const toP = (p) => new THREE.Vector3(...p).applyQuaternion(qR), toQ = (w) => qR.clone().multiply(new THREE.Quaternion(w[1], w[2], w[3], w[0]));
+function resize() { const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); } addEventListener('resize', resize); resize();
+const viewer = new GS.Viewer({ threeScene: three, renderer, camera, selfDrivenMode: false, useBuiltInControls: false, dynamicScene: true, sharedMemoryForWorkers: false, gpuAcceleratedSort: false, sphericalHarmonicsDegree: 0 });
+const stems = await (await fetch('/api/robot/links')).json();
+const linkOf = (stem) => { const p = stem.split('-'); return p[0].startsWith('panda_link') ? p[0] : (p[0] === 'Gripper' ? p[2] : p[0]); };
+const sceneIdx = [];
+for (const s of stems) { await viewer.addSplatScene(`/assets/robot/links/${encodeURIComponent(s)}.ply`, { showLoadingUI: false, format: GS.SceneFormat.Ply, splatAlphaRemovalThreshold: 5 }); sceneIdx.push([viewer.getSceneCount() - 1, linkOf(s)]); }
+const REST = [0, -0.6283, 0, -2.5133, 0, 1.885, 0], LIM = [[-2.9,2.9],[-1.76,1.76],[-2.9,2.9],[-3.07,-0.07],[-2.9,2.9],[-0.02,3.75],[-2.9,2.9]];
+const sl = document.getElementById('sliders');
+sl.innerHTML = REST.map((v, i) => `<label>joint${i+1} <input type="range" data-i="${i}" min="${LIM[i][0]}" max="${LIM[i][1]}" step="0.01" value="${v}"><span class="muted" id="v${i}">${v.toFixed(2)}</span></label>`).join('');
+const q = () => [...sl.querySelectorAll('input')].map(e => +e.value);
+let pending = false;
+async function update() {
+  if (pending) return; pending = true;
+  const g = +document.getElementById('grip').value; document.getElementById('gripv').textContent = g.toFixed(2);
+  q().forEach((v, i) => document.getElementById('v' + i).textContent = v.toFixed(2));
+  const poses = await (await fetch(`/api/robot/fk?q=${q().join(',')}&gripper=${g}`)).json();
+  for (const [idx, link] of sceneIdx) { const p = poses[link]; if (!p) continue; const s = viewer.getSplatScene(idx); s.position.copy(toP(p.pos)); s.quaternion.copy(toQ(p.quat_wxyz)); }
+  pending = false;
+}
+sl.oninput = update; document.getElementById('grip').oninput = update;
+document.getElementById('rest').onclick = () => { sl.querySelectorAll('input').forEach((e, i) => e.value = REST[i]); update(); };
+document.getElementById('zero').onclick = () => { sl.querySelectorAll('input').forEach(e => e.value = 0); update(); };
+await update(); status('');
+(function loop() { requestAnimationFrame(loop); controls.update(); viewer.update(); viewer.render(); })();
+</script>
+</body>
+</html>
