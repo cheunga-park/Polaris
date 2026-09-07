@@ -118,16 +118,19 @@ def undistort(workspace: str | Path, model: Path, *, colmap: str = "colmap") -> 
     return out
 
 
-def coarse_align(workspace: str | Path) -> tuple[Path, dict]:
-    """No ChArUco board: put the model in a sane frame anyway (scale stays unknown = 1).
+def coarse_align(workspace: str | Path, model: Path | None = None, camera_height_m: float = 0.6) -> tuple[Path, dict]:
+    """No ChArUco board: put the model in a sane frame anyway.
 
-    Up = the mean camera up-vector (a hand-held phone is held roughly upright), origin = the
-    centroid of the camera centres projected down to the lowest 5 % of the sparse points
-    (roughly the table/floor level the scan looked at). Writes ``sparse/coarse``.
+    Up = the mean camera up-vector (a hand-held phone is held roughly upright); origin = the
+    camera centroid projected down to the lowest 5 % of the sparse points (the table/floor the
+    scan looked at); scale = whatever makes that camera height ``camera_height_m`` (a phone
+    scan of a tabletop is shot from roughly that height). The result is NOT metric -- the
+    job records a warning -- but 2DGS's metric mesh parameters and the viewer then see a
+    scene of plausible size. Writes ``sparse/coarse`` + ``sim3.json``.
     """
     import pycolmap
     ws = Path(workspace)
-    rec = pycolmap.Reconstruction(str(ws / "sparse" / "0"))
+    rec = pycolmap.Reconstruction(str(model or (ws / "sparse" / "0")))
     ups, centres = [], []
     for im in rec.images.values():
         R = im.cam_from_world().rotation.matrix()          # world -> camera
@@ -144,9 +147,14 @@ def coarse_align(workspace: str | Path) -> tuple[Path, dict]:
     pts = np.array([p.xyz for p in rec.points3D.values()]) @ R.T
     cen = (np.mean(centres, axis=0)) @ R.T
     floor_z = float(np.percentile(pts[:, 2], 5)) if len(pts) else cen[2]
-    t = -np.array([cen[0], cen[1], floor_z])
-    sim = pycolmap.Sim3d(1.0, pycolmap.Rotation3d(R), t)
+    height = max(float(cen[2] - floor_z), 1e-6)
+    s = camera_height_m / height
+    t = -s * np.array([cen[0], cen[1], floor_z])
+    sim = pycolmap.Sim3d(s, pycolmap.Rotation3d(R), t)
     rec.transform(sim)
     out = ws / "sparse" / "coarse"; shutil.rmtree(out, ignore_errors=True); out.mkdir(parents=True)
     rec.write(str(out))
-    return out, {"up_before": [float(x) for x in up], "camera_centroid_after": [float(x) for x in (cen + t)], "floor_z_before": floor_z}
+    info = {"up_before": [float(x) for x in up], "camera_centroid_after": [float(x) for x in (s * cen + t)], "floor_z_before": floor_z,
+            "R": R.tolist(), "t": [float(x) for x in t], "s": float(s)}
+    (out / "sim3.json").write_text(json.dumps(info, indent=1))
+    return out, info

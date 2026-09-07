@@ -38,3 +38,31 @@ def to_web_ply(src: str | Path, dst: str | Path, thin: float = 2.0) -> Path:
     dst.parent.mkdir(parents=True, exist_ok=True)
     PlyData([PlyElement.describe(out, "vertex")], text=False).write(str(dst))
     return dst
+
+
+def transform_splat(src: str | Path, dst: str | Path, R: np.ndarray, t: np.ndarray, s: float = 1.0) -> Path:
+    """Apply a similarity (x' = s R x + t) to a 2DGS/3DGS PLY: positions, rotations, log-scales.
+    Normals and SH are left as they are (SH would need a rotation of the bands; degree-0 view is fine)."""
+    from scipy.spatial.transform import Rotation
+    ply = PlyData.read(str(src)); v = ply["vertex"]
+    xyz = np.c_[v["x"], v["y"], v["z"]].astype(np.float64)
+    xyz = (s * (xyz @ R.T)) + t
+    q = np.c_[v["rot_0"], v["rot_1"], v["rot_2"], v["rot_3"]].astype(np.float64)          # wxyz
+    r = Rotation.from_matrix(R) * Rotation.from_quat(q[:, [1, 2, 3, 0]])                    # scipy is xyzw
+    q2 = r.as_quat()[:, [3, 0, 1, 2]]
+    names = v.data.dtype.names
+    out = np.empty(len(xyz), dtype=v.data.dtype)
+    for n in names:
+        out[n] = v[n]
+    out["x"], out["y"], out["z"] = xyz[:, 0], xyz[:, 1], xyz[:, 2]
+    for i in range(4):
+        out[f"rot_{i}"] = q2[:, i]
+    for n in names:
+        if n.startswith("scale_"):
+            out[n] = v[n] + np.log(s)
+    if "nx" in names:
+        nrm = np.c_[v["nx"], v["ny"], v["nz"]].astype(np.float64) @ R.T
+        out["nx"], out["ny"], out["nz"] = nrm[:, 0], nrm[:, 1], nrm[:, 2]
+    dst = Path(dst); dst.parent.mkdir(parents=True, exist_ok=True)
+    PlyData([PlyElement.describe(out, "vertex")], text=False).write(str(dst))
+    return dst
