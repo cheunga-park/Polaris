@@ -139,7 +139,7 @@ def run(scan_id: str, *, cfg_path: Path = PIPELINE_CFG, force: list[str] | None 
             ply = Path(json.loads((model_dir / "splat.json").read_text())["ply"])
             asset = env_dir / "assets" / f"{scan_id}_static"
             info = mesh.package_background(fuse, ply, asset)
-            _write_scene(env_dir, scan_id, f"{scan_id}_static")
+            _write_scene(env_dir, scan_id, f"{scan_id}_static", _object_assets(env_dir, scan_id))
             return info
         stage("pack", (env_dir / "scene.usda").exists(), _pack)
         # 7. objects (optional): upload/objects/<name>.mp4 [+ <name>.json {"size_m": 0.12}] -> env/assets/<name>/
@@ -160,6 +160,7 @@ def run(scan_id: str, *, cfg_path: Path = PIPELINE_CFG, force: list[str] | None 
                     shutil.rmtree(target)
                 shutil.copytree(info["asset"], target)
                 done[v.stem] = info
+            _write_scene(env_dir, scan_id, f"{scan_id}_static", _object_assets(env_dir, scan_id))
             return done
         objs_dir = scan_dir / "upload" / "objects"
         have_objects = objs_dir.exists() and any(objs_dir.glob("*.mp4"))
@@ -182,20 +183,25 @@ def _scale_factor(before: Path, after: Path) -> float:
     return float(cb.std() / max(ca.std(), 1e-9))
 
 
-def _write_scene(env_dir: Path, scan_id: str, static_name: str) -> None:
-    """A minimal scene.usda in the compose-environments export format: the background only,
-    at the origin (the GUI is where objects and the robot offset get placed)."""
-    env_dir.mkdir(parents=True, exist_ok=True)
-    (env_dir / "scene.usda").write_text(f'''#usda 1.0
-(
-    defaultPrim = "World"
-    metersPerUnit = 1
-    upAxis = "Z"
-)
+def _object_assets(env_dir: Path, scan_id: str) -> dict[str, dict]:
+    a = env_dir / "assets"
+    return {p.name: {} for p in a.iterdir() if p.is_dir() and p.name != f"{scan_id}_static" and (p / "mesh.usdz").exists()} if a.exists() else {}
 
-def Xform "World"
-{{
-    def Xform "{static_name}" (
+
+def _write_scene(env_dir: Path, scan_id: str, static_name: str, objects: dict[str, dict] | None = None,
+                 board_origin=(0.45, -0.14, 0.0), seed: int = 0) -> None:
+    """scene.usda in the compose-environments export format.
+
+    Background at the origin (the ChArUco board frame). Objects, when present, are placed on
+    the board as rigid bodies in a row, and ``initial_conditions.json`` gets 10 randomised
+    placements inside the board so the environment is runnable before anyone opens the GUI
+    (the GUI is for refining exactly these two files)."""
+    import random
+    from polaris_v2s import charuco
+    env_dir.mkdir(parents=True, exist_ok=True)
+    bw, bh = charuco.BoardSpec.load().size_m
+    objects = objects or {}
+    prims = [f'''    def Xform "{static_name}" (
         prepend payload = @./assets/{static_name}/mesh.usdz@
     )
     {{
@@ -204,11 +210,36 @@ def Xform "World"
         quatd xformOp:orient = (1, 0, 0, 0)
         float3 xformOp:scale = (1, 1, 1)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }}
-}}
-''')
+    }}''']
+    names = sorted(objects)
+    for i, name in enumerate(names):
+        x = board_origin[0] + bw * (i + 1) / (len(names) + 1)
+        y = board_origin[1] + bh / 2
+        prims.append(f'''    def Xform "{name}" (
+        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysxRigidBodyAPI"]
+        prepend payload = @./assets/{name}/mesh.usdz@
+    )
+    {{
+        bool physics:rigidBodyEnabled = true
+        double3 xformOp:translate = ({x:.4f}, {y:.4f}, 0.05)
+        quatd xformOp:orient = (1, 0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+    }}''')
+    (env_dir / "scene.usda").write_text("#usda 1.0\n(\n    defaultPrim = \"World\"\n    metersPerUnit = 1\n    upAxis = \"Z\"\n)\n\ndef Xform \"World\"\n{\n" + "\n".join(prims) + "\n}\n")
     ic = env_dir / "initial_conditions.json"
-    if not ic.exists():
+    if names and (not ic.exists() or not json.loads(ic.read_text()).get("poses")):
+        rng = random.Random(seed)
+        poses = []
+        for _ in range(10):
+            pose = {}
+            for name in names:
+                x = board_origin[0] + rng.uniform(0.08, bw - 0.08); y = board_origin[1] + rng.uniform(0.06, bh - 0.06)
+                yaw = rng.uniform(-3.14159, 3.14159)
+                pose[name] = [x, y, 0.05, float(np.cos(yaw / 2)), 0.0, 0.0, float(np.sin(yaw / 2))]
+            poses.append(pose)
+        ic.write_text(json.dumps({"instruction": "", "poses": poses}, indent=2))
+    elif not ic.exists():
         ic.write_text(json.dumps({"instruction": "", "poses": []}, indent=2))
 
 
