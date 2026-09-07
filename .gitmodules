@@ -1,0 +1,9 @@
+[submodule "third_party/polaris"]
+	path = third_party/polaris
+	url = https://github.com/arhanjain/polaris.git
+[submodule "third_party/2d-gaussian-splatting"]
+	path = third_party/2d-gaussian-splatting
+	url = https://github.com/hbb1/2d-gaussian-splatting.git
+[submodule "third_party/compose-environments"]
+	path = third_party/compose-environments
+	url = https://github.com/polaris-evals/compose-environments.git

@@ -1,0 +1,17 @@
+# data & runs (never committed)
+data/
+runs/
+outputs/
+# python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+# node
+web/app/node_modules/
+web/app/dist/
+# tools
+micromamba/
+.env
