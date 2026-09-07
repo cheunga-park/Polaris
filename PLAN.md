@@ -345,4 +345,8 @@ WSL 상한 12 GB(`.wslconfig`, Isaac 윈도우 워커 여유 때문에 낮춘 �
 | 4 업로드 | 완료 | 폰 → `/scan.html` 업로드 → 잡 → 뷰어. 물체 업로드 폼 포함 |
 | 5 MuJoCo | S5.1–5.4 통과 | 업스트림 `eval.py` 무수정 실행. 창구 계약 테스트. 발견한 규약: (a) 업스트림 기본 `robot_splat=True` → 로봇은 스플랫으로 그려지고 시뮬레이터 마스크에 없음 (b) 링크 프레임: panda 링크는 menagerie 와 동일, Robotiq 링크는 USD(rest pose) 와 menagerie 를 수치로 대조해 상수 오프셋 유도(`data/cache/robot_link_offsets.json`) (c) 정적 배경 충돌은 CoACD 대신 **작업공간 크롭 + 6 cm 격자 볼록 조각**(CoACD 는 상판이 2.5 cm 꺼짐) (d) 허브 IC 는 물체를 상판 5 cm 위에 두어 리셋 직후 낙하 — Isaac 도 같음 (e) 물체에 구름 마찰 추가(MuJoCo 기본 0 이면 원통이 계속 구름) — §8.5 표에 추가할 델타 |
 
-**남은 게이트**: S5.5 π0.5 50 롤아웃 × 2 환경(정책 서버 = tosim 의 openpi 환경 재사용, 체크포인트 12.4 GB), S5.6 결과 웹(페이지는 있음), 단계 3 TRELLIS 실행, 그리고 **실제 폰 영상**.
+**S5.5 진행(2026-09-08 02:30~)**: π0.5 polaris 체크포인트(12.4 GB, gcsfs 익명 다운로드 4 분) 를 tosim 의 openpi 환경으로 서빙(:8100, VRAM 9.3 GB). 스모크 2 에피소드: 진행도 0.33, 0.17(업스트림 issue #24 의 Isaac 재현은 평균 0.58). 본 배치 `scripts/eval_batch.sh pi05 8100 50 DROID-FoodBussing DROID-TapeIntoContainer` 실행 중, 이어서 PanClean·BlockStackKitchen 예약. **공정한 비교 대상은 UW 3 환경**(FoodBussing, PanClean, BlockStackKitchen) — 저자가 Princeton 3 환경의 리셋 상태가 공개판에서 깨졌다고 밝힘(issue #24).
+
+**보드 없는 스캔의 임시 정렬**: 카메라 상향 벡터 → 중력, 희소점 하위 5 % → 바닥 z=0, 카메라 높이 0.6 m 가정 → 스케일(합성 스캔에서 s=0.086, 실제 스케일과 일치). 경고 "NOT metric" 은 그대로 남는다. 실제 폰 영상에서는 ChArUco 가 이 자리를 대신한다.
+
+**남은 게이트**: S5.5 배치 결과와 §8.5 델타 표 보고, 단계 3 TRELLIS 실행(환경 설치 중), 그리고 **실제 폰 영상**.
