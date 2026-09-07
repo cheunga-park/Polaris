@@ -356,4 +356,6 @@ WSL 상한 12 GB(`.wslconfig`, Isaac 윈도우 워커 여유 때문에 낮춘 �
 
 **배치 중 관찰(2026-09-08 04시)**: FoodBussing 50 완료(진행도 0.327, 성공 0/50; 업스트림 Isaac 재현 0.58, 17 %). PanClean·BlockStack·Tape 는 정책 서버 웹소켓 keepalive(20 s) 타임아웃으로 중간에 끊겨 재개 큐에 넣음 — 원인은 WSL RAM 12 GB 상한에서 스왑(5 GB)이 도는 메모리 압박(같은 기계에서 tosim 테스트도 돌고 있었음). `polaris_mujoco.run` 이 websockets 의 ping_timeout 을 600 s 로 넓히는 후킹을 추가. **`.wslconfig memory=20GB` 권장은 그대로**(§9.3).
 
-**남은 게이트**: S5.5 배치 결과와 §8.5 델타 표 보고, 단계 3 TRELLIS 실행(환경 설치 완료, 배치 뒤 자동 실행), 그리고 **실제 폰 영상**.
+**S5.5 1차 결과(2026-09-08 05시, `docs/REPORT_pi05.md`)**: UW 3 환경 × 50 롤아웃. 진행도 BlockStack 0.249 / FoodBussing 0.327 / PanClean 0.340, 성공 0/150 (Wilson 90 % 상한 5 %). 업스트림 Isaac 재현(issue #24, 100 에피소드)은 0.501 / 0.580 / 0.750, 성공 2 / 17 / 37 %. 진행도 분포를 보면 reach·lift 기준은 넘고 마지막 `is_within_xy`(그리퍼 연 채 물체가 용기 XY 안 80 %)가 한 번도 성립하지 않는다 — 그리퍼 열림 판정(열림 시 driver 0.017 rad → finger_joint 0.017 < 0.1) 은 정상. 배치 뒤 `scripts/diagnose_release.py` 가 놓는 순간의 물체 위치·겹침·프레임을 기록한다. 후보: (a) 놓은 뒤 물체가 튀어 나감(접촉 물성) (b) 정책이 잡은 채로 끝냄(손목 시야·조명 차이로 행동이 다름) (c) 용기 bbox 판정의 프레임 차이.
+
+**남은 게이트**: 진단 결과 반영, Tape 50 완료, 단계 3 TRELLIS 실행(배치 뒤 자동), 그리고 **실제 폰 영상**.
