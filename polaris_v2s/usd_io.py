@@ -121,8 +121,9 @@ def read_scene(scene_usda: str | Path) -> SceneInfo:
                 rigid_body=bool(UsdPhysics.RigidBodyAPI(child)),
             )
             if asset_dir:
-                row.has_splat = (env_dir / "assets" / asset_dir / "splat.ply").exists()
-                row.has_mesh = (env_dir / "assets" / asset_dir / "mesh.usdz").exists()
+                adir = env_dir / "assets" / asset_dir
+                row.has_splat = (adir / "splat.ply").exists()      # upstream only ever reads splat.ply
+                row.has_mesh = any((adir / f).exists() for f in ("mesh.usdz", "mesh.usd", "mesh.usda", "mesh.glb"))
             info.prims.append(row)
     return info
 
@@ -133,21 +134,56 @@ def _texture_from_usdz(usdz: Path, member: str):
         return Image.open(io.BytesIO(z.read(member))).convert("RGB")
 
 
-def usdz_to_trimesh(usdz: str | Path) -> trimesh.Trimesh:
-    """First UsdGeom.Mesh in the file, triangulated, in the file's own units -> metres."""
-    usdz = Path(usdz)
-    stage = Usd.Stage.Open(str(usdz))
-    mpu = UsdGeom.GetStageMetersPerUnit(stage) or 1.0
+def _texture_for(prim: Usd.Prim, usdz: Path | None):
+    """The UsdUVTexture bound to the prim's material, as a PIL image (inside a usdz or on disk)."""
+    from PIL import Image
+    mat = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()[0]
+    if not mat:
+        return None
+    # UsdPreviewSurface (TRELLIS usdz): UsdUVTexture.inputs:file = "0/texture.jpg" inside the usdz.
+    # Omniverse MDL (princeton envs): a shader with inputs:texture = "./textures/x.png" next to mesh.usd.
+    for sh in Usd.PrimRange(mat.GetPrim()):
+        if not sh.IsA(UsdShade.Shader):
+            continue
+        for name in ("file", "texture", "diffuse_texture", "base_color_texture"):
+            inp = UsdShade.Shader(sh).GetInput(name)
+            if not inp:
+                continue
+            ap = inp.Get()
+            if not ap or not getattr(ap, "path", ""):
+                continue
+            rp = ap.resolvedPath or ""
+            if "[" in rp:                       # member of a usdz package
+                z, member = rp.split("[", 1)
+                return _texture_from_usdz(Path(z), member.rstrip("]"))
+            if rp and Path(rp).exists():
+                return Image.open(rp).convert("RGB")
+            # unresolved relative path: relative to the layer that authored it
+            stack = inp.GetAttr().GetPropertyStack(Usd.TimeCode.Default())
+            for spec in stack:
+                cand = Path(spec.layer.realPath).parent / ap.path
+                if cand.exists():
+                    return Image.open(cand).convert("RGB")
+    return None
+
+
+def _meshes_under(stage: Usd.Stage, root: Usd.Prim, to_root: np.ndarray | None, mpu: float) -> list[trimesh.Trimesh]:
+    """Every UsdGeom.Mesh under ``root`` as trimesh, in ``root``'s frame (or world if to_root is None)."""
     xf = UsdGeom.XformCache()
     meshes = []
-    for prim in stage.Traverse():
-        if not prim.IsA(UsdGeom.Mesh):
+    for prim in Usd.PrimRange(root):
+        if not prim.IsA(UsdGeom.Mesh) or not UsdGeom.Imageable(prim).ComputeVisibility() == "inherited":
             continue
         m = UsdGeom.Mesh(prim)
-        pts = np.asarray(m.GetPointsAttr().Get(), dtype=np.float64)
+        pts_attr = m.GetPointsAttr().Get()
+        if not pts_attr:
+            continue
+        pts = np.asarray(pts_attr, dtype=np.float64)
         counts = np.asarray(m.GetFaceVertexCountsAttr().Get())
         idx = np.asarray(m.GetFaceVertexIndicesAttr().Get())
         mat = np.asarray(xf.GetLocalToWorldTransform(prim), dtype=np.float64)  # row-vector convention
+        if to_root is not None:
+            mat = mat @ to_root
         pts = (np.c_[pts, np.ones(len(pts))] @ mat)[:, :3] * mpu
         # triangulate (fan) while tracking the corner index for faceVarying primvars
         faces, corners = [], []
@@ -173,15 +209,11 @@ def usdz_to_trimesh(usdz: str | Path) -> trimesh.Trimesh:
                 pass
             else:
                 uv = None
-            tex = None
-            for sh in stage.Traverse():
-                if sh.IsA(UsdShade.Shader) and UsdShade.Shader(sh).GetIdAttr().Get() == "UsdUVTexture":
-                    ap = UsdShade.Shader(sh).GetInput("file").Get()
-                    if ap and "[" in ap.resolvedPath:
-                        tex = _texture_from_usdz(usdz, ap.resolvedPath.split("[", 1)[1].rstrip("]"))
-                        break
-            if uv is not None:
-                visual = trimesh.visual.TextureVisuals(uv=uv, image=tex) if tex is not None else None
+            tex = _texture_for(prim, None)
+            if uv is not None and tex is not None:
+                # matte PBR: trimesh's default SimpleMaterial exports as metallic, which renders black
+                mat_ = trimesh.visual.material.PBRMaterial(baseColorTexture=tex, metallicFactor=0.0, roughnessFactor=0.9)
+                visual = trimesh.visual.TextureVisuals(uv=uv, material=mat_)
         tm = trimesh.Trimesh(vertices=pts, faces=faces, visual=visual, process=False)
         if visual is None:
             dc = m.GetDisplayColorAttr().Get()
@@ -189,9 +221,44 @@ def usdz_to_trimesh(usdz: str | Path) -> trimesh.Trimesh:
                 col = (np.asarray(dc[0]) * 255).astype(np.uint8)
                 tm.visual.face_colors = np.tile(np.r_[col, 255], (len(faces), 1))
         meshes.append(tm)
+    return meshes
+
+
+def _join(meshes: list[trimesh.Trimesh], what: str) -> trimesh.Trimesh:
     if not meshes:
-        raise ValueError(f"no UsdGeom.Mesh in {usdz}")
+        raise ValueError(f"no UsdGeom.Mesh in {what}")
     return meshes[0] if len(meshes) == 1 else trimesh.util.concatenate(meshes)
+
+
+def usdz_to_trimesh(usdz: str | Path) -> trimesh.Trimesh:
+    """A standalone asset file (usdz/usd): all its meshes, in the file's own root frame, metres."""
+    usdz = Path(usdz)
+    stage = Usd.Stage.Open(str(usdz))
+    mpu = UsdGeom.GetStageMetersPerUnit(stage) or 1.0
+    return _join(_meshes_under(stage, stage.GetPseudoRoot(), None, mpu), str(usdz))
+
+
+def prim_to_trimesh(scene_usda: str | Path, prim_name: str) -> trimesh.Trimesh:
+    """The composed scene's ``/World/<prim_name>`` subtree in the prim's own frame.
+
+    This is what a viewer or a simulator wants: the asset *as placed*, including the
+    ``over`` blocks in scene.usda that move a child mesh, but without the prim's own
+    translate/orient/scale (those are the pose the initial conditions overwrite).
+    """
+    stage = Usd.Stage.Open(str(scene_usda))
+    prim = stage.GetPrimAtPath(f"/World/{prim_name}")
+    if not prim:
+        raise KeyError(prim_name)
+    mpu = UsdGeom.GetStageMetersPerUnit(stage) or 1.0
+    xf = UsdGeom.XformCache()
+    world = np.asarray(xf.GetLocalToWorldTransform(prim), dtype=np.float64)
+    return _join(_meshes_under(stage, prim, np.linalg.inv(world), mpu), f"{scene_usda}:{prim_name}")
+
+
+def prim_to_glb(scene_usda: str | Path, prim_name: str, dst: str | Path) -> Path:
+    dst = Path(dst); dst.parent.mkdir(parents=True, exist_ok=True)
+    prim_to_trimesh(scene_usda, prim_name).export(str(dst), file_type="glb")
+    return dst
 
 
 def usdz_to_glb(usdz: str | Path, dst: str | Path) -> Path:

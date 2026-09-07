@@ -64,15 +64,17 @@ def initial_conditions(env_id: str):
 
 # ---- derived assets (cached) -------------------------------------------------------------
 
-@app.get("/assets/envs/{env_id}/{asset}/mesh.glb")
-def asset_glb(env_id: str, asset: str):
+@app.get("/assets/envs/{env_id}/prims/{prim}/mesh.glb")
+def prim_glb(env_id: str, prim: str):
+    """The prim's mesh as placed by scene.usda (child overrides included), in the prim frame."""
     e = _env(env_id)
-    src = Path(e.path) / "assets" / asset / "mesh.usdz"
-    if not src.exists():
-        raise HTTPException(404, "no mesh.usdz")
-    dst = CACHE / e.folder / asset / "mesh.glb"
-    if not dst.exists() or dst.stat().st_mtime < src.stat().st_mtime:
-        usd_io.usdz_to_glb(src, dst)
+    scene_usda = Path(e.path) / "scene.usda"
+    dst = CACHE / e.folder / "prims" / prim / "mesh.glb"
+    if not dst.exists() or dst.stat().st_mtime < scene_usda.stat().st_mtime:
+        try:
+            usd_io.prim_to_glb(scene_usda, prim, dst)
+        except (KeyError, ValueError) as ex:
+            raise HTTPException(404, str(ex))
     return FileResponse(dst, media_type="model/gltf-binary")
 
 

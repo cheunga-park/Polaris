@@ -69,9 +69,12 @@ function resize() { const w = stage.clientWidth, h = stage.clientHeight; rendere
 addEventListener('resize', resize); resize();
 
 // ---- camera from the scene's external_cam (USD camera looks down -Z, +Y up — same as three)
-const ext = scene.cameras.find(c => c.name === 'external_cam');
+// When scene.usda has no camera prim, upstream droid_cfg.py falls back to a fixed external
+// camera (SceneCfg.dynamic_setup: pos (-0.01,-0.33,0.48), rot wxyz (0.76,0.43,-0.24,-0.42),
+// focal 1.0476, aperture 2.5452x1.4721). Same numbers here.
+const ext = scene.cameras.find(c => c.name === 'external_cam') ||
+  { translate: [-0.01, -0.33, 0.48], orient_wxyz: [0.76, 0.43, -0.24, -0.42], fov_deg: [101.1, 70.2] };
 function goExternal() {
-  if (!ext) { camera.position.set(1.5, 1.2, 1.5); controls.target.set(0.4, 0.2, 0); return; }
   camera.fov = ext.fov_deg[1]; camera.updateProjectionMatrix();
   camera.position.copy(toThreePos(ext.translate));
   camera.quaternion.copy(toThreeQuat(ext.orient_wxyz));
@@ -91,22 +94,23 @@ const primsDiv = document.getElementById('prims');
 for (const p of scene.prims) {
   primsDiv.insertAdjacentHTML('beforeend', `<div class="row"><span>${p.name}</span><span class="k">${p.kinematic ? 'static' : 'rigid'} · ${p.has_splat ? 'splat' : ''} ${p.has_mesh ? 'mesh' : ''}</span></div>`);
   if (!p.asset_dir) continue;
-  if (p.has_mesh) {
+  if (p.has_mesh) try {
     status(`loading mesh ${p.name}…`);
-    const g = await gltf.loadAsync(`/assets/envs/${encodeURIComponent(envId)}/${p.asset_dir}/mesh.glb`);
+    const g = await gltf.loadAsync(`/assets/envs/${encodeURIComponent(envId)}/prims/${encodeURIComponent(p.name)}/mesh.glb`);
     const node = new THREE.Group(); node.add(g.scene);
     node.position.set(...p.translate); node.quaternion.set(p.orient_wxyz[1], p.orient_wxyz[2], p.orient_wxyz[3], p.orient_wxyz[0]); node.scale.set(...p.scale);
+    g.scene.traverse(o => { if (o.isMesh && o.material) { o.material.metalness = 0; o.material.roughness = 0.9; } });
     world.add(node); objects[p.name] = node;
     if (p.kinematic) { node.visible = false; bgMeshes.push(node); g.scene.traverse(o => { if (o.isMesh) o.material = new THREE.MeshStandardMaterial({ color: 0x8899aa, wireframe: false, flatShading: true }); }); }
     else objMeshes.push(node);
-  }
-  if (p.has_splat) {
+  } catch (err) { console.warn('mesh failed', p.name, err); }
+  if (p.has_splat) try {
     status(`loading splat ${p.name}…`);
     const pos = toThreePos(p.translate), rot = toThreeQuat(p.orient_wxyz);
     await splatViewer.addSplatScene(`/assets/envs/${encodeURIComponent(envId)}/${p.asset_dir}/splat_web.ply`, {
       position: [pos.x, pos.y, pos.z], rotation: [rot.x, rot.y, rot.z, rot.w], scale: p.scale, splatAlphaRemovalThreshold: 5, showLoadingUI: false, format: GS.SceneFormat.Ply });
     splatIdx[p.name] = splatViewer.getSceneCount() - 1;
-  }
+  } catch (err) { console.warn('splat failed', p.name, err); }
 }
 let robotIdx = null;
 document.getElementById('robotOn').onchange = async (e) => {
