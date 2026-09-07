@@ -11,9 +11,10 @@ UP = ROOT / "third_party" / "polaris" / "src" / "polaris"
 
 
 def _harvest():
-    src = "\n".join(p.read_text() for p in [UP / "environments/manager_based_rl_splat_environment.py", UP / "environments/rubrics/checkers.py", UP / "environments/droid_cfg.py"])
-    data_attrs = set(re.findall(r"\.data\.([a-zA-Z_]+)", src))
-    scene_attrs = set(re.findall(r"self\.scene\.([a-zA-Z_]+)", src))
+    env_src = "\n".join(p.read_text() for p in [UP / "environments/manager_based_rl_splat_environment.py", UP / "environments/rubrics/checkers.py"])
+    cfg_src = (UP / "environments/droid_cfg.py").read_text()
+    data_attrs = set(re.findall(r"\.data\.([a-zA-Z_]+)", env_src + cfg_src))
+    scene_attrs = set(re.findall(r"self\.scene\.([a-zA-Z_]+)", env_src))   # droid_cfg's self.scene is the *cfg*
     return data_attrs, scene_attrs
 
 
