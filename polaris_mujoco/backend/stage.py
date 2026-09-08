@@ -38,6 +38,7 @@ class BodySpec:
     asset_dir: str | None = None
     mass: float | None = None        # None -> density
     extent_m: list[float] = field(default_factory=list)
+    hfield: Path | None = None       # static prims: support heightfield (npz), replaces chunk hulls inside the workspace
 
 
 def _coacd(mesh: trimesh.Trimesh, out_dir: Path, *, threshold: float, max_hulls: int) -> list[Path]:
@@ -80,7 +81,7 @@ def _crop_static(mesh: trimesh.Trimesh, translate, orient_wxyz, scale) -> trimes
     return out
 
 
-def _chunk_hulls(mesh: trimesh.Trimesh, out_dir: Path, *, cell: float = 0.06, thickness: float = 0.03) -> list[Path]:
+def _chunk_hulls(mesh: trimesh.Trimesh, out_dir: Path, *, cell: float = 0.06, thickness: float = 0.03, z_above: float | None = None) -> list[Path]:
     """Static geometry as a grid of small convex chunks (prim frame in, prim frame out).
 
     CoACD on a room-sized mesh is a Hausdorff approximation: with threshold 0.02 the
@@ -92,9 +93,14 @@ def _chunk_hulls(mesh: trimesh.Trimesh, out_dir: Path, *, cell: float = 0.06, th
     through a stovetop in one 1/120 s step; 30 mm is thicker than anything falls per step."""
     tri = mesh.triangles                                   # (F, 3, 3)
     cen = tri.mean(axis=1)
+    if z_above is not None:                                # with a support heightfield, hulls only above the band
+        keep = cen[:, 2] > z_above; tri = tri[keep]; cen = cen[keep]
+        fn_all = mesh.face_normals[keep]
+    else:
+        fn_all = mesh.face_normals
     keys = np.floor(cen / cell).astype(np.int64)
     _, inv = np.unique(keys, axis=0, return_inverse=True)
-    fn = mesh.face_normals
+    fn = fn_all
     paths = []
     for k in range(inv.max() + 1):
         f = np.where(inv == k)[0]
@@ -127,7 +133,10 @@ def prepare(scene_usda: str | Path, *, env_name: str | None = None, coacd_thresh
             continue  # inline Mesh prims (e.g. a table plane in move_latte_cup) are handled by the builder as boxes if needed
         d = CACHE / env_name / "prims" / p.name
         d.mkdir(parents=True, exist_ok=True)
-        params = ({"cell": static_cell, "thick": static_thickness, "crop": True, "v": 4} if p.kinematic
+        # kinematic prims: the room/table-sized background gets the heightfield + chunk hulls; a small
+        # static object (a pan or mug pinned in place) keeps its concave shape via CoACD like rigid ones
+        big_static = p.kinematic and (p.has_splat or max(usd_io.prim_to_trimesh(scene_usda, p.name).extents * np.asarray(p.scale)) > 0.8)
+        params = ({"cell": static_cell, "thick": static_thickness, "crop": True, "hfield": HFIELD_RES, "band": SUPPORT_BAND_Z, "fill": "ic_p90", "v": 7} if big_static
                   else {"thr": coacd_threshold, "hulls": max_hulls_object, "v": 1})
         fp = _fingerprint(scene_usda, p.name, params)
         stamp = d / "coacd.json"
@@ -137,8 +146,14 @@ def prepare(scene_usda: str | Path, *, env_name: str | None = None, coacd_thresh
             mesh.export(str(d / "visual.obj"))
             for old in d.glob("collision_*.obj"):
                 old.unlink()
-            if p.kinematic:
-                hulls = _chunk_hulls(_crop_static(mesh, p.translate, p.orient_wxyz, p.scale), d, cell=static_cell, thickness=static_thickness)
+            if big_static:
+                # chunk hulls in the PRIM frame need the band in world z: crop returns prim-frame mesh; convert the band
+                cropped = _crop_static(mesh, p.translate, p.orient_wxyz, p.scale)
+                w_, x_, y_, z_ = p.orient_wxyz; Rz = trimesh.transformations.quaternion_matrix([w_, x_, y_, z_])[:3, :3]
+                world = (cropped.vertices * np.asarray(p.scale)) @ Rz.T + np.asarray(p.translate)
+                high = trimesh.Trimesh(vertices=cropped.vertices, faces=cropped.faces[world[cropped.faces].mean(1)[:, 2] > SUPPORT_BAND_Z - 0.03], process=False)
+                hulls = _chunk_hulls(high, d, cell=static_cell, thickness=static_thickness) if len(high.faces) else []
+                support_hfield(mesh, p.translate, p.orient_wxyz, p.scale, d / "hfield.npz", ic_json=scene_usda.parent / "initial_conditions.json")
             else:
                 hulls = _coacd(mesh, d, threshold=params["thr"], max_hulls=params["hulls"])
             stamp.write_text(json.dumps({"fp": fp, "hulls": len(hulls), "extent": [float(x) for x in mesh.extents],
@@ -147,5 +162,90 @@ def prepare(scene_usda: str | Path, *, env_name: str | None = None, coacd_thresh
         out.append(BodySpec(
             name=p.name, kinematic=p.kinematic, translate=p.translate, orient_wxyz=p.orient_wxyz, scale=p.scale,
             visual_obj=d / "visual.obj", collision_objs=sorted(d.glob("collision_*.obj")), has_splat=p.has_splat,
-            asset_dir=p.asset_dir, extent_m=meta["extent"]))
+            asset_dir=p.asset_dir, extent_m=meta["extent"], hfield=(d / "hfield.npz") if (big_static and (d / "hfield.npz").exists()) else None))
     return out
+
+
+# ----------------------------------------------------------------------------- static support as a heightfield
+HFIELD_RES = 0.015   # metres per cell (5 mm made hfield-vs-mesh contacts explode)
+SUPPORT_BAND_Z = 0.15  # the heightfield takes surfaces up to this height; hulls take what is above (walls, hoods)
+
+
+def _rasterize_upper_envelope(V: np.ndarray, F: np.ndarray, x0: float, x1: float, y0: float, y1: float, res: float):
+    """Max-z of the mesh per grid cell (world frame). Cells no triangle covers are NaN."""
+    nx = int(np.ceil((x1 - x0) / res)) + 1; ny = int(np.ceil((y1 - y0) / res)) + 1
+    H = np.full((ny, nx), np.nan)
+    tri = V[F]                                   # (T, 3, 3)
+    keep = (tri[:, :, 0].max(1) >= x0) & (tri[:, :, 0].min(1) <= x1) & (tri[:, :, 1].max(1) >= y0) & (tri[:, :, 1].min(1) <= y1)
+    for a, b, c in tri[keep]:
+        xs = np.array([a[0], b[0], c[0]]); ys = np.array([a[1], b[1], c[1]])
+        i0, i1 = max(0, int((xs.min() - x0) / res)), min(nx - 1, int((xs.max() - x0) / res) + 1)
+        j0, j1 = max(0, int((ys.min() - y0) / res)), min(ny - 1, int((ys.max() - y0) / res) + 1)
+        if i1 < i0 or j1 < j0:
+            continue
+        gx = x0 + np.arange(i0, i1 + 1) * res; gy = y0 + np.arange(j0, j1 + 1) * res
+        X, Y = np.meshgrid(gx, gy)
+        d = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])
+        if abs(d) < 1e-12:
+            continue
+        l1 = ((b[0] - X) * (c[1] - Y) - (c[0] - X) * (b[1] - Y)) / d
+        l2 = ((c[0] - X) * (a[1] - Y) - (a[0] - X) * (c[1] - Y)) / d
+        l3 = 1 - l1 - l2
+        inside = (l1 >= -1e-6) & (l2 >= -1e-6) & (l3 >= -1e-6)
+        if not inside.any():
+            continue
+        Z = l1 * a[2] + l2 * b[2] + l3 * c[2]
+        sub = H[j0:j1 + 1, i0:i1 + 1]
+        cand = np.where(inside, Z, np.nan)
+        H[j0:j1 + 1, i0:i1 + 1] = np.fmax(sub, cand)
+    return H
+
+
+def _fill_placement_region(H: np.ndarray, x0: float, y0: float, res: float, ic_json: Path, dilate_m: float = 0.05, pct: float = 90) -> dict | None:
+    """Raise the support inside the object-placement region to its own p90 height.
+
+    The scans lose thin structure (a stove grate's bars): the TSDF mesh keeps the burner well
+    but not the bars over it, so a dropped sponge tips 30-60 deg into the well and no
+    top-down pinch can hold it; the real sponge lies flat on the bars. The initial conditions
+    say where objects are placed; inside that footprint (+5 cm) the support becomes the
+    local p90 height (bar tops), leaving everything else as scanned. Recorded delta (PLAN 8.5)."""
+    import json
+    from scipy.spatial import ConvexHull, Delaunay
+    from scipy.ndimage import binary_dilation
+    if not ic_json.exists():
+        return None
+    poses = json.loads(ic_json.read_text()).get("poses", [])
+    pts = np.array([p[n][:2] for p in poses for n in p]) if poses else np.zeros((0, 2))
+    if len(pts) < 3:
+        return None
+    hull = ConvexHull(pts); poly = pts[hull.vertices]
+    ny, nx = H.shape; gx = x0 + np.arange(nx) * res; gy = y0 + np.arange(ny) * res; X, Y = np.meshgrid(gx, gy)
+    inside = (Delaunay(poly).find_simplex(np.c_[X.ravel(), Y.ravel()]) >= 0).reshape(ny, nx)
+    inside = binary_dilation(inside, iterations=max(1, int(dilate_m / res)))
+    top = float(np.percentile(H[inside], pct)); before = float(np.percentile(H[inside], 50))
+    H[inside] = np.maximum(H[inside], top)
+    return {"cells": int(inside.sum()), "support_z": top, "median_before": before}
+
+
+def support_hfield(mesh: trimesh.Trimesh, translate, orient_wxyz, scale, out_path: Path, *, res: float = HFIELD_RES,
+                   box=WORKSPACE, zmax: float = 0.6, ic_json: Path | None = None) -> dict:
+    """The static prim's upper envelope over the workspace as a MuJoCo heightfield (npz + meta).
+
+    Why: a scanned tabletop/stove is not flat -- the sponge in PanClean lies in a groove of the
+    grate. Convex chunks bridge such grooves and the fingertips stop ~1 cm too high, which loses
+    the grasp; the exact upper envelope keeps them (PhysX in upstream collides with the raw
+    triangle mesh). Overhangs become solid, which does not matter for a support surface.
+    """
+    w, x, y, z = orient_wxyz
+    R = trimesh.transformations.quaternion_matrix([w, x, y, z])[:3, :3]
+    V = (mesh.vertices * np.asarray(scale, dtype=float)) @ R.T + np.asarray(translate, dtype=float)
+    # only the support band: an upper envelope that included the range hood / back panel turned
+    # the whole stovetop into a solid block up to the hood; walls and overhangs stay chunk hulls
+    F = np.asarray(mesh.faces); F = F[(V[F][:, :, 2].min(1) <= SUPPORT_BAND_Z)]
+    x0, y0 = box[0][0], box[0][1]; x1, y1 = box[1][0], box[1][1]
+    H = _rasterize_upper_envelope(V, F, x0, x1, y0, y1, res)
+    zfloor = float(np.nanmin(H)) if np.isfinite(H).any() else 0.0
+    H = np.where(np.isnan(H), zfloor - 0.05, H)           # holes: nothing to stand on there
+    fill = _fill_placement_region(H, x0, y0, res, ic_json) if ic_json is not None else None
+    np.savez_compressed(out_path, H=H.astype(np.float32), x0=x0, y0=y0, res=res)
+    return {"nrow": int(H.shape[0]), "ncol": int(H.shape[1]), "zmin": float(H.min()), "zmax": float(H.max()), "path": str(out_path), "placement_fill": fill}

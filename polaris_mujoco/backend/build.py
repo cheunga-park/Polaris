@@ -26,6 +26,7 @@ def build(bodies: list[BodySpec], *, timestep: float = 1 / 120, kp: float = 400.
           gravcomp: bool = True, offwidth: int = 1280, offheight: int = 720) -> tuple[mujoco.MjSpec, dict]:
     spec = robot_mod.build(kp=kp, kv=kv, gravcomp=gravcomp)
     spec.option.timestep = timestep
+    spec.memory = 1 << 30              # heightfield-vs-mesh contacts are many; 1 GiB arena
     spec.option.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
     spec.visual.global_.offwidth = offwidth
     spec.visual.global_.offheight = offheight
@@ -64,6 +65,17 @@ def build(bodies: list[BodySpec], *, timestep: float = 1 / 120, kp: float = 400.
                 mat = spec.add_material(); mat.name = f"{bs.name}_mat"; mat.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = t.name
                 mat.specular = 0.05; mat.shininess = 0.05
                 g.material = mat.name
+        if bs.kinematic and bs.hfield is not None:
+            # support band (z <= SUPPORT_BAND_Z) as a heightfield = exact upper envelope with grooves
+            # kept; the chunk hulls of this prim (added below) only cover geometry above the band
+            z = np.load(bs.hfield); H = z["H"]; x0, y0, res = float(z["x0"]), float(z["y0"]), float(z["res"])
+            ny, nx = H.shape; zmin, zmax = float(H.min()), float(H.max()); elev = max(zmax - zmin, 1e-3)
+            hf = spec.add_hfield(); hf.name = f"{bs.name}_hf"; hf.nrow = ny; hf.ncol = nx
+            hf.size = [ (nx - 1) * res / 2, (ny - 1) * res / 2, elev, 0.05 ]
+            hf.userdata = ((H - zmin) / elev).astype(np.float32).reshape(-1)
+            g = spec.worldbody.add_geom(); g.name = f"{bs.name}_hf"; g.type = mujoco.mjtGeom.mjGEOM_HFIELD; g.hfieldname = hf.name
+            g.pos = [x0 + (nx - 1) * res / 2, y0 + (ny - 1) * res / 2, zmin]
+            g.contype = 2; g.conaffinity = 3; g.group = COLLISION_GROUP; g.friction[0] = 1.0
         for i, obj in enumerate(bs.collision_objs):
             m = spec.add_mesh(); m.name = f"{bs.name}_col{i}"; m.file = str(obj); m.scale = scale
             g = body.add_geom(); g.name = f"{bs.name}_col{i}"; g.type = mujoco.mjtGeom.mjGEOM_MESH; g.meshname = m.name
