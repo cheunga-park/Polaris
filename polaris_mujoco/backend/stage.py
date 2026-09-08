@@ -136,7 +136,7 @@ def prepare(scene_usda: str | Path, *, env_name: str | None = None, coacd_thresh
         # kinematic prims: the room/table-sized background gets the heightfield + chunk hulls; a small
         # static object (a pan or mug pinned in place) keeps its concave shape via CoACD like rigid ones
         big_static = p.kinematic and (p.has_splat or max(usd_io.prim_to_trimesh(scene_usda, p.name).extents * np.asarray(p.scale)) > 0.8)
-        params = ({"cell": static_cell, "thick": static_thickness, "crop": True, "hfield": HFIELD_RES, "band": SUPPORT_BAND_Z, "fill": "ic_p90", "v": 7} if big_static
+        params = ({"cell": static_cell, "thick": static_thickness, "crop": True, "hfield": HFIELD_RES, "band": SUPPORT_BAND_Z, "fill": "ic+prims_p90", "v": 8} if big_static
                   else {"thr": coacd_threshold, "hulls": max_hulls_object, "v": 1})
         fp = _fingerprint(scene_usda, p.name, params)
         stamp = d / "coacd.json"
@@ -153,7 +153,8 @@ def prepare(scene_usda: str | Path, *, env_name: str | None = None, coacd_thresh
                 world = (cropped.vertices * np.asarray(p.scale)) @ Rz.T + np.asarray(p.translate)
                 high = trimesh.Trimesh(vertices=cropped.vertices, faces=cropped.faces[world[cropped.faces].mean(1)[:, 2] > SUPPORT_BAND_Z - 0.03], process=False)
                 hulls = _chunk_hulls(high, d, cell=static_cell, thickness=static_thickness) if len(high.faces) else []
-                support_hfield(mesh, p.translate, p.orient_wxyz, p.scale, d / "hfield.npz", ic_json=scene_usda.parent / "initial_conditions.json")
+                others = np.array([q.translate[:2] for q in info.prims if q.asset_dir and q.name != p.name])
+                support_hfield(mesh, p.translate, p.orient_wxyz, p.scale, d / "hfield.npz", ic_json=scene_usda.parent / "initial_conditions.json", extra_xy=others)
             else:
                 hulls = _coacd(mesh, d, threshold=params["thr"], max_hulls=params["hulls"])
             stamp.write_text(json.dumps({"fp": fp, "hulls": len(hulls), "extent": [float(x) for x in mesh.extents],
@@ -201,7 +202,8 @@ def _rasterize_upper_envelope(V: np.ndarray, F: np.ndarray, x0: float, x1: float
     return H
 
 
-def _fill_placement_region(H: np.ndarray, x0: float, y0: float, res: float, ic_json: Path, dilate_m: float = 0.05, pct: float = 90) -> dict | None:
+def _fill_placement_region(H: np.ndarray, x0: float, y0: float, res: float, ic_json: Path, dilate_m: float = 0.05, pct: float = 90,
+                           extra_xy: np.ndarray | None = None) -> dict | None:
     """Raise the support inside the object-placement region to its own p90 height.
 
     The scans lose thin structure (a stove grate's bars): the TSDF mesh keeps the burner well
@@ -214,8 +216,12 @@ def _fill_placement_region(H: np.ndarray, x0: float, y0: float, res: float, ic_j
     from scipy.ndimage import binary_dilation
     if not ic_json.exists():
         return None
-    poses = json.loads(ic_json.read_text()).get("poses", [])
+    poses = json.loads(ic_json.read_text()).get("poses", []) if ic_json.exists() else []
     pts = np.array([p[n][:2] for p in poses for n in p]) if poses else np.zeros((0, 2))
+    if extra_xy is not None and len(extra_xy):
+        # containers pinned in place (the pan, the mug) sit on the same support; the scan under them
+        # is occluded (a hole), and a sponge released over the pan rim fell through to the floor
+        pts = np.vstack([pts, np.asarray(extra_xy, float).reshape(-1, 2)]) if len(pts) else np.asarray(extra_xy, float).reshape(-1, 2)
     if len(pts) < 3:
         return None
     hull = ConvexHull(pts); poly = pts[hull.vertices]
@@ -228,7 +234,7 @@ def _fill_placement_region(H: np.ndarray, x0: float, y0: float, res: float, ic_j
 
 
 def support_hfield(mesh: trimesh.Trimesh, translate, orient_wxyz, scale, out_path: Path, *, res: float = HFIELD_RES,
-                   box=WORKSPACE, zmax: float = 0.6, ic_json: Path | None = None) -> dict:
+                   box=WORKSPACE, zmax: float = 0.6, ic_json: Path | None = None, extra_xy=None) -> dict:
     """The static prim's upper envelope over the workspace as a MuJoCo heightfield (npz + meta).
 
     Why: a scanned tabletop/stove is not flat -- the sponge in PanClean lies in a groove of the
@@ -246,6 +252,6 @@ def support_hfield(mesh: trimesh.Trimesh, translate, orient_wxyz, scale, out_pat
     H = _rasterize_upper_envelope(V, F, x0, x1, y0, y1, res)
     zfloor = float(np.nanmin(H)) if np.isfinite(H).any() else 0.0
     H = np.where(np.isnan(H), zfloor - 0.05, H)           # holes: nothing to stand on there
-    fill = _fill_placement_region(H, x0, y0, res, ic_json) if ic_json is not None else None
+    fill = _fill_placement_region(H, x0, y0, res, ic_json, extra_xy=extra_xy) if ic_json is not None else None
     np.savez_compressed(out_path, H=H.astype(np.float32), x0=x0, y0=y0, res=res)
     return {"nrow": int(H.shape[0]), "ncol": int(H.shape[1]), "zmin": float(H.min()), "zmax": float(H.max()), "path": str(out_path), "placement_fill": fill}
