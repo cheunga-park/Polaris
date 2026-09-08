@@ -26,6 +26,22 @@ def main(argv: list[str] | None = None) -> None:
     # `--policy.client Fake` works as the docstring implies. A hook, not an edit.
     from polaris.policy.abstract_client import FakeClient, InferenceClient
     InferenceClient.REGISTERED_CLIENTS.setdefault("Fake", FakeClient)
+    # Upstream eval.py appends one frame per *policy inference* (every open_loop_horizon = 8 env
+    # steps = 0.53 s of sim time) but writes the mp4 at fps=15, so a 30 s episode plays in 3.7 s.
+    # Pace the video in real time by default (fps = 15 / horizon); POLARIS_VIDEO_FPS overrides.
+    try:
+        import os as _os
+        import mediapy as _mp
+        _orig_write = _mp.write_video
+
+        def _write_video(path, images, *a, fps=15, **k):
+            horizon = int(_os.environ.get("POLARIS_OPEN_LOOP_HORIZON", "8"))
+            fps = float(_os.environ.get("POLARIS_VIDEO_FPS", fps / horizon))
+            return _orig_write(path, images, *a, fps=fps, **k)
+
+        _mp.write_video = _write_video
+    except Exception:  # noqa: BLE001
+        pass
     # openpi's websocket client keeps the library default ping_timeout (20 s). A stall on the shared
     # GPU longer than that kills the whole run ("keepalive ping timeout"), so widen it here. Hook on
     # the websockets entry point, not on upstream/openpi code.
