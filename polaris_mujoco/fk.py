@@ -39,7 +39,9 @@ def link_poses(arm_q: list[float], gripper: float = 0.0) -> dict[str, dict]:
                     d.qpos[m.jnt_qposadr[jid]] = drv * k
         mujoco.mj_forward(m, d)
         out = {}
-        for isaac in off:
-            p, q = robot_mod.isaac_link_pose(d, m, isaac, off)
-            out[isaac] = {"pos": [float(x) for x in p], "quat_wxyz": [float(x) for x in q]}
+        for key in off:
+            if key.startswith("_"):
+                continue
+            p, q = robot_mod.isaac_link_pose(d, m, key, off)
+            out[key] = {"pos": [float(x) for x in p], "quat_wxyz": [float(x) for x in q]}
         return out

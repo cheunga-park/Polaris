@@ -18,7 +18,7 @@
   <div id="stage"><div class="status" id="status">loading 19 link splats…</div></div>
   <aside class="panel">
     <h2>DROID Franka + Robotiq, as link splats</h2>
-    <p class="muted" style="margin:4px 0 10px">허브 <code>nvidia_droid/SEGMENTED</code> 의 링크별 스플랫 19개를 MuJoCo FK(menagerie 모델 + USD 에서 유도한 링크 프레임 오프셋)로 움직인다. 논문의 "링크 앵커 스플랫" 그대로.</p>
+    <p class="muted" style="margin:4px 0 10px">허브 <code>nvidia_droid/SEGMENTED</code> 의 링크별 스플랫 19개를 MuJoCo FK(menagerie 모델 + USD 메시 프림 프레임에서 유도한 오프셋, Robotiq 은 DROID 장착각 −45°)로 움직인다. 논문의 "링크 앵커 스플랫" 그대로.</p>
     <div id="sliders"></div>
     <h3>Gripper</h3>
     <input type="range" id="grip" min="0" max="1" step="0.01" value="0"><span id="gripv" class="muted">0.00</span>
@@ -44,7 +44,7 @@ const viewer = new GS.Viewer({ threeScene: three, renderer, camera, selfDrivenMo
 const stems = await (await fetch('/api/robot/links')).json();
 const linkOf = (stem) => { const p = stem.split('-'); return p[0].startsWith('panda_link') ? p[0] : (p[0] === 'Gripper' ? p[2] : p[0]); };
 const sceneIdx = [];
-for (const s of stems) { await viewer.addSplatScene(`/assets/robot/links/${encodeURIComponent(s)}.ply`, { showLoadingUI: false, format: GS.SceneFormat.Ply, splatAlphaRemovalThreshold: 5 }); sceneIdx.push([viewer.getSceneCount() - 1, linkOf(s)]); }
+for (const s of stems) { await viewer.addSplatScene(`/assets/robot/links/${encodeURIComponent(s)}.ply`, { showLoadingUI: false, format: GS.SceneFormat.Ply, splatAlphaRemovalThreshold: 5 }); sceneIdx.push([viewer.getSceneCount() - 1, linkOf(s), s]); }
 const REST = [0, -0.6283, 0, -2.5133, 0, 1.885, 0], LIM = [[-2.9,2.9],[-1.76,1.76],[-2.9,2.9],[-3.07,-0.07],[-2.9,2.9],[-0.02,3.75],[-2.9,2.9]];
 const sl = document.getElementById('sliders');
 sl.innerHTML = REST.map((v, i) => `<label>joint${i+1} <input type="range" data-i="${i}" min="${LIM[i][0]}" max="${LIM[i][1]}" step="0.01" value="${v}"><span class="muted" id="v${i}">${v.toFixed(2)}</span></label>`).join('');
@@ -55,7 +55,7 @@ async function update() {
   const g = +document.getElementById('grip').value; document.getElementById('gripv').textContent = g.toFixed(2);
   q().forEach((v, i) => document.getElementById('v' + i).textContent = v.toFixed(2));
   const poses = await (await fetch(`/api/robot/fk?q=${q().join(',')}&gripper=${g}`)).json();
-  for (const [idx, link] of sceneIdx) { const p = poses[link]; if (!p) continue; const s = viewer.getSplatScene(idx); s.position.copy(toP(p.pos)); s.quaternion.copy(toQ(p.quat_wxyz)); }
+  for (const [idx, link, stem] of sceneIdx) { const p = poses[stem] || poses[link]; if (!p) continue; const s = viewer.getSplatScene(idx); s.position.copy(toP(p.pos)); s.quaternion.copy(toQ(p.quat_wxyz)); }
   pending = false;
 }
 sl.oninput = update; document.getElementById('grip').oninput = update;
