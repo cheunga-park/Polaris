@@ -80,15 +80,16 @@ def _crop_static(mesh: trimesh.Trimesh, translate, orient_wxyz, scale) -> trimes
     return out
 
 
-def _chunk_hulls(mesh: trimesh.Trimesh, out_dir: Path, *, cell: float = 0.06, thickness: float = 0.004) -> list[Path]:
+def _chunk_hulls(mesh: trimesh.Trimesh, out_dir: Path, *, cell: float = 0.06, thickness: float = 0.03) -> list[Path]:
     """Static geometry as a grid of small convex chunks (prim frame in, prim frame out).
 
     CoACD on a room-sized mesh is a Hausdorff approximation: with threshold 0.02 the
     tabletop hull sat ~25 mm under the real surface. Splitting the cropped mesh into
     ``cell``-sized boxes and taking the convex hull of each chunk's triangles is exact on
     flat and gently curved surfaces (a tabletop) and only approximates within one cell
-    elsewhere. Coplanar chunks get ``thickness`` extruded along -normal so every hull has
-    volume (MuJoCo needs it)."""
+    elsewhere. Every chunk is extruded ``thickness`` along -normal (into the surface, away from
+    the scene): with 4 mm an object dropped from its (hovering) initial condition tunnelled
+    through a stovetop in one 1/120 s step; 30 mm is thicker than anything falls per step."""
     tri = mesh.triangles                                   # (F, 3, 3)
     cen = tri.mean(axis=1)
     keys = np.floor(cen / cell).astype(np.int64)
@@ -114,7 +115,7 @@ def _chunk_hulls(mesh: trimesh.Trimesh, out_dir: Path, *, cell: float = 0.06, th
 
 
 def prepare(scene_usda: str | Path, *, env_name: str | None = None, coacd_threshold: float = 0.05,
-            max_hulls_object: int = 24, static_cell: float = 0.06,
+            max_hulls_object: int = 24, static_cell: float = 0.06, static_thickness: float = 0.03,
             force: bool = False) -> list[BodySpec]:
     """Every rigid/static prim of the scene as a BodySpec with cached OBJ files."""
     scene_usda = Path(scene_usda)
@@ -126,7 +127,7 @@ def prepare(scene_usda: str | Path, *, env_name: str | None = None, coacd_thresh
             continue  # inline Mesh prims (e.g. a table plane in move_latte_cup) are handled by the builder as boxes if needed
         d = CACHE / env_name / "prims" / p.name
         d.mkdir(parents=True, exist_ok=True)
-        params = ({"cell": static_cell, "crop": True, "v": 3} if p.kinematic
+        params = ({"cell": static_cell, "thick": static_thickness, "crop": True, "v": 4} if p.kinematic
                   else {"thr": coacd_threshold, "hulls": max_hulls_object, "v": 1})
         fp = _fingerprint(scene_usda, p.name, params)
         stamp = d / "coacd.json"
@@ -137,7 +138,7 @@ def prepare(scene_usda: str | Path, *, env_name: str | None = None, coacd_thresh
             for old in d.glob("collision_*.obj"):
                 old.unlink()
             if p.kinematic:
-                hulls = _chunk_hulls(_crop_static(mesh, p.translate, p.orient_wxyz, p.scale), d, cell=static_cell)
+                hulls = _chunk_hulls(_crop_static(mesh, p.translate, p.orient_wxyz, p.scale), d, cell=static_cell, thickness=static_thickness)
             else:
                 hulls = _coacd(mesh, d, threshold=params["thr"], max_hulls=params["hulls"])
             stamp.write_text(json.dumps({"fp": fp, "hulls": len(hulls), "extent": [float(x) for x in mesh.extents],
