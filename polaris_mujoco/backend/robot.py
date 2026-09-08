@@ -34,6 +34,7 @@ GRIPPER_MAP = {"base_link": "base", "left_outer_knuckle": "left_driver", "left_o
                "right_inner_knuckle": "right_spring_link", "right_inner_finger": "right_follower"}
 FINGER_CLOSED = np.pi / 4          # Isaac finger_joint close command (droid_cfg ActionCfg)
 GRIPPER_YAW = -np.pi / 4           # Robotiq mount yaw vs Menagerie's attachment site (see build())
+GRIPPER_GAIN = 16.0                # tendon actuator gain multiplier (see build())
 
 
 def _quat_mul(a, b):
@@ -62,6 +63,13 @@ def build(kp: float = 400.0, kv: float = 80.0, gravcomp: bool = True) -> mujoco.
         if act.target in ARM_JOINTS:
             act.gainprm[0] = kp; act.biasprm[0] = 0.0; act.biasprm[1] = -kp; act.biasprm[2] = -kv
     arm.option.cone = mujoco.mjtCone.mjCONE_ELLIPTIC   # the 2f85 model is tuned for it (attach keeps the parent's)
+    # Gripper speed: Isaac drives finger_joint with velocity_limit 5 rad/s / effort 200 (closes in
+    # ~0.2 s); Menagerie's tendon actuator (kp 100, +-5 N) needs 1.2 s, which a 15 Hz policy that
+    # closes-then-lifts does not wait for. Re-gain the tendon actuator to close in ~0.25 s.
+    for act in arm.actuators:
+        if act.name.endswith("fingers_actuator"):
+            act.gainprm[0] *= GRIPPER_GAIN; act.biasprm[1] *= GRIPPER_GAIN; act.biasprm[2] *= GRIPPER_GAIN ** 0.5
+            act.forcerange = [-5.0 * GRIPPER_GAIN, 5.0 * GRIPPER_GAIN]
     if gravcomp:
         for b in arm.bodies:
             b.gravcomp = 1.0
