@@ -17,6 +17,10 @@ import numpy as np
 from . import robot as robot_mod
 from .stage import BodySpec
 
+import os
+# Isaac Lab's default rigid-body material is static/dynamic friction 0.5; MuJoCo takes the max of
+# the pair, so objects at 1.0 never slip in a closed gripper. POLARIS_OBJECT_FRICTION overrides.
+OBJECT_FRICTION = float(os.environ.get("POLARIS_OBJECT_FRICTION", "0.5"))
 ROBOT_GEOM_GROUP = 1     # rendering group for robot geoms (segmentation reads geom -> body)
 OBJECT_GEOM_GROUP = 2
 COLLISION_GROUP = 3      # convex pieces: rendered off
@@ -86,7 +90,7 @@ def build(bodies: list[BodySpec], *, timestep: float = 1 / 120, kp: float = 400.
             # (MuJoCo's default has zero rolling resistance; PhysX has none either, but its
             # faceted contacts damp it) -- a recorded delta, see PLAN §8.5
             g.condim = 6
-            g.friction[0] = 1.0; g.friction[1] = 0.005; g.friction[2] = 0.001
+            g.friction[0] = OBJECT_FRICTION; g.friction[1] = 0.005; g.friction[2] = 0.001
         if bs.kinematic:
             for g in body.geoms:
                 g.density = 0.0

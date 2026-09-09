@@ -27,7 +27,7 @@ def main(a):
     within_relaxed = checkers.is_within_xy(a.object, a.container, percent_threshold=0.3, open_finger_threshold=10.0)  # geometry only
     for ep in range(a.episodes):
         obs, info = env.reset(object_positions=ics[ep]); client.reset()
-        log, released, lifted = [], None, False
+        log, released, lifted, first_close = [], None, False, None
         z0 = float(env.scene[a.object].data.root_pos_w[0, 2])
         for t in range(env.max_episode_length):
             action, _ = client.infer(obs, instr)
@@ -38,11 +38,16 @@ def main(a):
                    "obj_dz": round(z - z0, 4), "ee_obj_dist": round(float(torch.norm(ee - obj)), 4), "geom_within": bool(within_relaxed(env))}
             log.append(rec)
             if z - z0 > 0.04: lifted = True
+            if first_close is None and float(action[-1]) > 0.5:
+                first_close = t
+                img = env.custom_render(expensive=True)
+                cv2.imwrite(str(out / f"close_{ep}.png"), cv2.cvtColor(np.hstack([img["external_cam"], img["wrist_cam"]]), cv2.COLOR_RGB2BGR))
             if lifted and released is None and finger < 0.1 and log[-2]["finger"] >= 0.1:
                 released = t
                 img = env.custom_render(expensive=True)["external_cam"]; cv2.imwrite(str(out / f"release_{ep}.png"), cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
             if term[0] or trunc[0]: break
-        summary = {"episode": ep, "final_progress": log[-1]["progress"], "max_dz": max(r["obj_dz"] for r in log), "lifted": lifted, "release_step": released,
+        obj_xy = [round(float(v), 3) for v in env.scene[a.object].data.root_pos_w[0, :2]]
+        summary = {"episode": ep, "final_progress": log[-1]["progress"], "first_close": first_close, "dist_at_first_close": (log[first_close]["ee_obj_dist"] if first_close is not None else None), "final_obj_xy": obj_xy, "max_dz": max(r["obj_dz"] for r in log), "lifted": lifted, "release_step": released,
                    "steps_open_with_lift": sum(1 for r in log if r["finger"] < 0.1 and r["obj_dz"] > 0.04), "steps_geom_within": sum(1 for r in log if r["geom_within"]),
                    "final_obj_dz": log[-1]["obj_dz"], "final_geom_within": log[-1]["geom_within"], "final_finger": log[-1]["finger"]}
         print(json.dumps(summary)); json.dump({"summary": summary, "log": log}, open(out / f"episode_{ep}.json", "w"))
