@@ -136,7 +136,7 @@ def prepare(scene_usda: str | Path, *, env_name: str | None = None, coacd_thresh
         # kinematic prims: the room/table-sized background gets the heightfield + chunk hulls; a small
         # static object (a pan or mug pinned in place) keeps its concave shape via CoACD like rigid ones
         big_static = p.kinematic and (p.has_splat or max(usd_io.prim_to_trimesh(scene_usda, p.name).extents * np.asarray(p.scale)) > 0.8)
-        params = ({"cell": static_cell, "thick": static_thickness, "crop": True, "hfield": HFIELD_RES, "band": SUPPORT_BAND_Z, "fill": "ic+prims_p90", "v": 8} if big_static
+        params = ({"cell": static_cell, "thick": static_thickness, "crop": True, "hfield": HFIELD_RES, "band": SUPPORT_BAND_Z, "fill": "ic+prims_p90", "bridge": HOLE_BRIDGE_M, "v": 9} if big_static
                   else {"thr": coacd_threshold, "hulls": max_hulls_object, "v": 1})
         fp = _fingerprint(scene_usda, p.name, params)
         stamp = d / "coacd.json"
@@ -170,6 +170,7 @@ def prepare(scene_usda: str | Path, *, env_name: str | None = None, coacd_thresh
 # ----------------------------------------------------------------------------- static support as a heightfield
 HFIELD_RES = 0.015   # metres per cell (5 mm made hfield-vs-mesh contacts explode)
 SUPPORT_BAND_Z = 0.15  # the heightfield takes surfaces up to this height; hulls take what is above (walls, hoods)
+HOLE_BRIDGE_M = 0.25   # scan holes narrower than this are bridged from neighbouring cells
 
 
 def _rasterize_upper_envelope(V: np.ndarray, F: np.ndarray, x0: float, x1: float, y0: float, y1: float, res: float):
@@ -251,7 +252,16 @@ def support_hfield(mesh: trimesh.Trimesh, translate, orient_wxyz, scale, out_pat
     x0, y0 = box[0][0], box[0][1]; x1, y1 = box[1][0], box[1][1]
     H = _rasterize_upper_envelope(V, F, x0, x1, y0, y1, res)
     zfloor = float(np.nanmin(H)) if np.isfinite(H).any() else 0.0
-    H = np.where(np.isnan(H), zfloor - 0.05, H)           # holes: nothing to stand on there
+    # Scan holes (occluded patches of the tabletop, missing floor) are NaN. Small holes are bridged
+    # from the nearest scanned cell (a pushed grape must not fall through the table); cells more
+    # than HOLE_BRIDGE_M from any scanned surface stay open (real air beyond the table edge).
+    from scipy.ndimage import distance_transform_edt
+    nan = np.isnan(H)
+    if nan.any() and (~nan).any():
+        dist, (iy, ix) = distance_transform_edt(nan, return_distances=True, return_indices=True)
+        bridged = nan & (dist * res <= HOLE_BRIDGE_M)
+        H = np.where(bridged, H[iy, ix], H)
+    H = np.where(np.isnan(H), zfloor - 0.05, H)
     fill = _fill_placement_region(H, x0, y0, res, ic_json, extra_xy=extra_xy) if ic_json is not None else None
     np.savez_compressed(out_path, H=H.astype(np.float32), x0=x0, y0=y0, res=res)
     return {"nrow": int(H.shape[0]), "ncol": int(H.shape[1]), "zmin": float(H.min()), "zmax": float(H.max()), "path": str(out_path), "placement_fill": fill}
