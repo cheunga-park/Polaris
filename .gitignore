@@ -18,3 +18,4 @@ micromamba/
 .venv-2dgs/
 # cloned by scripts/setup_trellis.sh (not a submodule)
 third_party/TRELLIS/
+MUJOCO_LOG.TXT
