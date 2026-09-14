@@ -136,7 +136,7 @@ def prepare(scene_usda: str | Path, *, env_name: str | None = None, coacd_thresh
         # kinematic prims: the room/table-sized background gets the heightfield + chunk hulls; a small
         # static object (a pan or mug pinned in place) keeps its concave shape via CoACD like rigid ones
         big_static = p.kinematic and (p.has_splat or max(usd_io.prim_to_trimesh(scene_usda, p.name).extents * np.asarray(p.scale)) > 0.8)
-        params = ({"cell": static_cell, "thick": static_thickness, "crop": True, "hfield": HFIELD_RES, "band": SUPPORT_BAND_Z, "fill": "ic+prims_p90", "bridge": HOLE_BRIDGE_M, "v": 9} if big_static
+        params = ({"cell": static_cell, "thick": static_thickness, "crop": True, "hfield": HFIELD_RES, "band": SUPPORT_BAND_Z, "fill": "ic+prims_p90_flat", "bridge": HOLE_BRIDGE_M, "v": 10} if big_static
                   else {"thr": coacd_threshold, "hulls": max_hulls_object, "v": 1})
         fp = _fingerprint(scene_usda, p.name, params)
         stamp = d / "coacd.json"
@@ -230,7 +230,8 @@ def _fill_placement_region(H: np.ndarray, x0: float, y0: float, res: float, ic_j
     inside = (Delaunay(poly).find_simplex(np.c_[X.ravel(), Y.ravel()]) >= 0).reshape(ny, nx)
     inside = binary_dilation(inside, iterations=max(1, int(dilate_m / res)))
     top = float(np.percentile(H[inside], pct)); before = float(np.percentile(H[inside], 50))
-    H[inside] = np.maximum(H[inside], top)
+    # a flat plane, not max(): the +-1-2 cm scan noise above p90 tilted cubes by 4-15 deg
+    H[inside] = top
     return {"cells": int(inside.sum()), "support_z": top, "median_before": before}
 
 
